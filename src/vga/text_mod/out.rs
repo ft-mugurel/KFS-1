@@ -1,9 +1,9 @@
-use super::cursor::{move_cursor, set_cursor, set_cursor_x, CURSOR};
+use super::cursor::{move_cursor, set_cursor_x, CURSOR};
 
 // Assuming you have these constants defined
-const VGA_BUFFER: *mut u16 = 0xB8000 as *mut u16;
-const VGA_WIDTH: usize = 80;
-const VGA_HEIGHT: usize = 25;
+pub const VGA_BUFFER: *mut u16 = 0xB8000 as *mut u16;
+pub const VGA_WIDTH: usize = 80;
+pub const VGA_HEIGHT: usize = 25;
 
 // Color constants
 #[allow(dead_code)]
@@ -30,7 +30,7 @@ pub enum Color {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct ColorCode(u8);
+pub struct ColorCode(pub u8);
 
 impl ColorCode {
     pub fn new(foreground: Color, background: Color) -> ColorCode {
@@ -41,7 +41,7 @@ impl ColorCode {
 #[allow(dead_code)]
 pub fn clear(color: ColorCode) {
     let blank = 0x20 | ((color.0 as u16) << 8);
-    
+
     unsafe {
         for y in 0..VGA_HEIGHT {
             for x in 0..VGA_WIDTH {
@@ -62,13 +62,28 @@ pub fn print(str: &str, color: ColorCode) {
             continue;
         }
         unsafe {
-            VGA_BUFFER.offset((CURSOR.y * (VGA_WIDTH as u16) + CURSOR.x) as isize).write_volatile(vga_char);
+            VGA_BUFFER
+                .offset((CURSOR.y * (VGA_WIDTH as u16) + CURSOR.x) as isize)
+                .write_volatile(vga_char);
         }
         move_cursor(1, 0);
         if i >= VGA_WIDTH {
             move_cursor(0, 1);
         }
     }
+}
+
+#[allow(dead_code)]
+pub fn print_char(c: char, color: ColorCode) {
+    let byte = c as u8; // Convert the char to a byte
+    let vga_char = (byte as u16) | (color.0 as u16) << 8;
+
+    unsafe {
+        VGA_BUFFER
+            .offset((CURSOR.y * (VGA_WIDTH as u16) + CURSOR.x) as isize)
+            .write_volatile(vga_char);
+    }
+    move_cursor(1, 0);
 }
 
 #[allow(dead_code)]
@@ -84,7 +99,7 @@ pub fn newline() {
 
 #[allow(dead_code)]
 pub fn scroll() {
-    for y in 0..VGA_HEIGHT { 
+    for y in 0..VGA_HEIGHT {
         for x in 0..VGA_WIDTH {
             unsafe {
                 let index = y * VGA_WIDTH + x;
