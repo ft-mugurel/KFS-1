@@ -1,12 +1,18 @@
-ORG 0x7c00
+ORG 0
 BITS 16
 
+jmp 0x7c0:start
+
 start:
-		mov ah, 0eh
-		mov al, 'A'
-		mov bx, 0
-		int 0x10
-		jmp $
+		cli ; clear intrupts
+		mov ax, 0x7c0
+		mov ds, ax
+		mov es, ax
+		mov ax, 0x00
+		mov ss, ax
+		mov sp, 0x7c00
+		sti ; enable intrupts
+
 
 times 510-($ - $$) db 0
 dw 0xAA55
