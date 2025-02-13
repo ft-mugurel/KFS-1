@@ -25,4 +25,3 @@ The goal of this project is to understand the fundamental concepts of operating 
    git clone https://github.com/your-username/kfs-1.git
    cd kfs-1
    ```
-2.
