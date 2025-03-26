@@ -2,6 +2,7 @@
 #![no_main]
 
 use core::panic::PanicInfo;
+mod vga_buffer;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -10,18 +11,7 @@ fn panic(_info: &PanicInfo) -> ! {
 
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
-    kprint("Adem kernel sana girsin!");
+    vga_buffer::kprint("Hello, World!", vga_buffer::ColorCode::new(vga_buffer::Color::Yellow, vga_buffer::Color::Black));
+    vga_buffer::kclear(vga_buffer::ColorCode::new(vga_buffer::Color::Yellow, vga_buffer::Color::Black));
     loop {}
-}
-
-
-pub fn kprint(str: &str) {
-    let vga_buffer: *mut u8 = 0xb8000 as *mut u8;
-
-    for (i, &byte) in str.as_bytes().iter().enumerate() {
-        unsafe {
-            *vga_buffer.offset(i as isize * 2) = byte;
-            *vga_buffer.offset(i as isize * 2 + 1) = 0xf;
-        }
-    }
 }
