@@ -36,7 +36,8 @@ impl ColorCode {
     }
 }
 
-pub fn kclear(color: ColorCode) {
+#[allow(dead_code)]
+pub fn clear(color: ColorCode) {
     let blank = 0x20 | ((color.0 as u16) << 8);
     
     unsafe {
@@ -48,7 +49,9 @@ pub fn kclear(color: ColorCode) {
         }
     }
 }
-pub fn kprint(str: &str, color: ColorCode) {
+
+#[allow(dead_code)]
+pub fn print(str: &str, color: ColorCode) {
     for (i, &byte) in str.as_bytes().iter().enumerate() {
         let vga_char = (byte as u16) | (color.0 as u16) << 8;
         unsafe {
@@ -57,3 +60,16 @@ pub fn kprint(str: &str, color: ColorCode) {
     }
 }
 
+#[allow(dead_code)]
+pub fn scroll() {
+    for x in 0..VGA_HEIGHT { 
+        for  y in 0..VGA_WIDTH {
+            unsafe {
+                let index = x * VGA_WIDTH + y;
+                let index2 = (x + 1) * VGA_WIDTH + y;
+                let vga_char = VGA_BUFFER.offset(index2 as isize).read_volatile();
+                VGA_BUFFER.offset(index as isize).write_volatile(vga_char);
+            }
+        }
+    }
+}
