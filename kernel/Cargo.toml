@@ -15,3 +15,8 @@ name = "kernel"
 edition = "2018"
 path = "src/kernel.rs"
 crate-type = ["staticlib"]
+
+[dependencies]
+x86 = "0.52"  # Check for latest version
+
+
