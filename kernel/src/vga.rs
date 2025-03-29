@@ -73,3 +73,14 @@ pub fn scroll() {
         }
     }
 }
+use x86::io::{outb, inb};
+const VGA_CMD_PORT: u16 = 0x3D4;
+const VGA_DATA_PORT: u16 = 0x3D5;
+#[allow(dead_code)]
+pub fn disable_cursor() {
+    unsafe {
+        outb(VGA_CMD_PORT, 0x0A);
+        let cursor_start = inb(VGA_DATA_PORT);
+        outb(VGA_DATA_PORT, cursor_start | 0x20);
+    }
+}
