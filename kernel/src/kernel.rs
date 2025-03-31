@@ -2,7 +2,8 @@
 #![no_main]
 
 use core::panic::PanicInfo;
-mod vga;
+pub mod vga;
+use vga::text_mod::*;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -11,8 +12,11 @@ fn panic(_info: &PanicInfo) -> ! {
 
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
-    vga::print("Hello, World!", vga::ColorCode::new(vga::Color::Yellow, vga::Color::Black));
-    vga::clear(vga::ColorCode::new(vga::Color::Yellow, vga::Color::Black));
-    vga::scroll();
+    cursor::move_cursor(10, 0);
+    cursor::set_big_cursor();
+    out::print("Hello, World!", out::ColorCode::new(out::Color::Yellow, out::Color::Black));
+    out::print("Hello, World!", out::ColorCode::new(out::Color::Yellow, out::Color::Black));
+    out::print("Hello, World!", out::ColorCode::new(out::Color::Yellow, out::Color::Black));
+    out::clear(out::ColorCode::new(out::Color::Yellow, out::Color::Black));
     loop {}
 }

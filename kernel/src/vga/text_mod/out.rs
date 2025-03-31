@@ -62,6 +62,13 @@ pub fn print(str: &str, color: ColorCode) {
 
 #[allow(dead_code)]
 pub fn newline() {
+    unsafe {
+        let mut index = VGA_WIDTH * (VGA_HEIGHT - 1);
+        while index < VGA_WIDTH * VGA_HEIGHT {
+            VGA_BUFFER.offset(index as isize).write_volatile(0x20);
+            index += 1;
+        }
+    }
 }
 
 #[allow(dead_code)]
