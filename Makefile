@@ -28,40 +28,32 @@ FLAGS		=	-fno-builtin -fno-builtin -fno-builtin -nostdlib -nodefaultlibs
 # **************************************************************************** #
 
 GRUB_MKRESCUE	=	$(shell which grub2-mkrescue 2>/dev/null || which grub-mkrescue 2>/dev/null)
-ifneq ($(GRUB_MKRESCUE),)
-	GRUB_MKRESCUE = $(GRUB_MKRESCUE)
-else
+ifeq ($(GRUB_MKRESCUE),)
 	$(error "grub-mkrescue not found, please install it.")
 endif
 
 QEMU_SYSTEM	=	$(shell which qemu-system-i386 2>/dev/null || which qemu 2>/dev/null)
-ifneq ($(QEMU_SYSTEM),)
-	QEMU_SYSTEM = $(QEMU_SYSTEM)
-else
+ifeq ($(QEMU_SYSTEM),)
 	$(error "qemu-system-i386 not found, please install it.")
 endif
+
 LD		=	$(shell which ld 2>/dev/null || which ld.bfd 2>/dev/null)
-ifneq ($(LD),)
-	LD = $(LD)
-else
+ifeq ($(LD),)
 	$(error "ld not found, please install it.")
 endif
+
 NASM		=	$(shell which nasm 2>/dev/null || which nasm 2>/dev/null)
-ifneq ($(NASM),)
-	NASM = $(NASM)
-else
+ifeq ($(NASM),)
 	$(error "nasm not found, please install it.")
 endif
-CARGO		=	$(shell which cargo 2>/dev/null || which cargo 2>/dev/null)
-ifneq ($(CARGO),)
-	CARGO = $(CARGO)
-else
+
+CARGO		=	$(shell which cargo 2>/dev/null)
+ifeq ($(CARGO),)
 	$(error "cargo not found, please install it.")
 endif
-RUSTC		=	$(shell which rustc 2>/dev/null || which rustc 2>/dev/null)
-ifneq ($(RUSTC),)
-	RUSTC = $(RUSTC)
-else
+
+RUSTC		=	$(shell which rustc 2>/dev/null)
+ifeq ($(RUSTC),)
 	$(error "rustc not found, please install it.")
 endif
 
@@ -69,7 +61,7 @@ endif
 # 📖 RULES
 # **************************************************************************** #
 
-all: build
+all: run-iso
 
 SRCS = $(shell find src -name "*.rs")
 
