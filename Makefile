@@ -61,7 +61,7 @@ iso: build
 	@mkdir -p build/iso/boot/grub
 	@cp grub/grub.cfg build/iso/boot/grub
 	@cp build/kernel.bin build/iso/boot
-	@grub-mkrescue -o ${ISO_OUT} build/iso --modules="multiboot"
+	@grub2-mkrescue -o ${ISO_OUT} build/iso --modules="multiboot"
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL ISO BUILD$(RESET)"
 
 run-iso: iso
@@ -72,8 +72,7 @@ clean:
 	@cargo clean
 	@echo -e "$(BOLD)$(RED)[♻︎] DELETE KERNEL DONE$(RESET)"
 
-fclean:
-	clear
+fclean: clean
 	@rm -rf build/
 	@echo -e "$(BOLD)$(RED)[♻︎] DELETE BUILD/ DONE$(RESET)"
 

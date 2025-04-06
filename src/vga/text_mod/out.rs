@@ -1,3 +1,5 @@
+use super::cursor::{move_cursor, set_cursor, set_cursor_x, CURSOR};
+
 // Assuming you have these constants defined
 const VGA_BUFFER: *mut u16 = 0xB8000 as *mut u16;
 const VGA_WIDTH: usize = 80;
@@ -54,8 +56,17 @@ pub fn clear(color: ColorCode) {
 pub fn print(str: &str, color: ColorCode) {
     for (i, &byte) in str.as_bytes().iter().enumerate() {
         let vga_char = (byte as u16) | (color.0 as u16) << 8;
+        if byte == b'\n' {
+            set_cursor_x(0);
+            move_cursor(0, 1);
+            continue;
+        }
         unsafe {
-            VGA_BUFFER.offset(i as isize).write_volatile(vga_char);
+            VGA_BUFFER.offset((CURSOR.y * (VGA_WIDTH as u16) + CURSOR.x) as isize).write_volatile(vga_char);
+        }
+        move_cursor(1, 0);
+        if i >= VGA_WIDTH {
+            move_cursor(0, 1);
         }
     }
 }
@@ -73,14 +84,16 @@ pub fn newline() {
 
 #[allow(dead_code)]
 pub fn scroll() {
-    for x in 0..VGA_HEIGHT { 
-        for  y in 0..VGA_WIDTH {
+    for y in 0..VGA_HEIGHT { 
+        for x in 0..VGA_WIDTH {
             unsafe {
-                let index = x * VGA_WIDTH + y;
-                let index2 = (x + 1) * VGA_WIDTH + y;
+                let index = y * VGA_WIDTH + x;
+                let index2 = (y + 1) * VGA_WIDTH + x;
                 let vga_char = VGA_BUFFER.offset(index2 as isize).read_volatile();
                 VGA_BUFFER.offset(index as isize).write_volatile(vga_char);
             }
         }
     }
+    set_cursor_x(0);
+    move_cursor(0, -1);
 }

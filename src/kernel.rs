@@ -3,6 +3,8 @@
 
 use core::panic::PanicInfo;
 pub mod vga;
+pub mod interrupts;
+use interrupts::keyboard::init::init_keyboard;
 use vga::text_mod::*;
 
 #[panic_handler]
@@ -12,11 +14,9 @@ fn panic(_info: &PanicInfo) -> ! {
 
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
-    cursor::move_cursor(10, 0);
+    init_keyboard(); // Initialize keyboard interrupts
     cursor::set_big_cursor();
-    out::print("Hello, World!", out::ColorCode::new(out::Color::Yellow, out::Color::Black));
-    out::print("Hello, World!", out::ColorCode::new(out::Color::Yellow, out::Color::Black));
-    out::print("Hello, World!", out::ColorCode::new(out::Color::Yellow, out::Color::Black));
-    out::clear(out::ColorCode::new(out::Color::Yellow, out::Color::Black));
+    let asd = out::ColorCode::new(out::Color::Yellow, out::Color::Black);
+    out::print("Hello\nHello", asd);
     loop {}
 }
