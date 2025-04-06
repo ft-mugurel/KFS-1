@@ -24,6 +24,48 @@ LINKER		=	linker/linker.ld
 FLAGS		=	-fno-builtin -fno-builtin -fno-builtin -nostdlib -nodefaultlibs
 
 # **************************************************************************** #
+# 
+# **************************************************************************** #
+
+GRUB_MKRESCUE	=	$(shell which grub2-mkrescue 2>/dev/null || which grub-mkrescue 2>/dev/null)
+ifneq ($(GRUB_MKRESCUE),)
+	GRUB_MKRESCUE = $(GRUB_MKRESCUE)
+else
+	$(error "grub-mkrescue not found, please install it.")
+endif
+
+QEMU_SYSTEM	=	$(shell which qemu-system-i386 2>/dev/null || which qemu 2>/dev/null)
+ifneq ($(QEMU_SYSTEM),)
+	QEMU_SYSTEM = $(QEMU_SYSTEM)
+else
+	$(error "qemu-system-i386 not found, please install it.")
+endif
+LD		=	$(shell which ld 2>/dev/null || which ld.bfd 2>/dev/null)
+ifneq ($(LD),)
+	LD = $(LD)
+else
+	$(error "ld not found, please install it.")
+endif
+NASM		=	$(shell which nasm 2>/dev/null || which nasm 2>/dev/null)
+ifneq ($(NASM),)
+	NASM = $(NASM)
+else
+	$(error "nasm not found, please install it.")
+endif
+CARGO		=	$(shell which cargo 2>/dev/null || which cargo 2>/dev/null)
+ifneq ($(CARGO),)
+	CARGO = $(CARGO)
+else
+	$(error "cargo not found, please install it.")
+endif
+RUSTC		=	$(shell which rustc 2>/dev/null || which rustc 2>/dev/null)
+ifneq ($(RUSTC),)
+	RUSTC = $(RUSTC)
+else
+	$(error "rustc not found, please install it.")
+endif
+
+# **************************************************************************** #
 # 📖 RULES
 # **************************************************************************** #
 
@@ -33,27 +75,27 @@ SRCS = $(shell find src -name "*.rs")
 
 build: 	${SRCS}
 	@mkdir -p build
-	@nasm -f elf32 ${BOOT} -o build/boot.o
-	@cargo build --release
+	@${NASM} -f elf32 ${BOOT} -o build/boot.o
+	@${CARGO} build --release
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL BUILD DONE$(RESET)"
-	@ld -m elf_i386 -T ${LINKER} -o build/kernel.bin build/boot.o  ${KERNEL_OUT}
+	@${LD} -m elf_i386 -T ${LINKER} -o build/kernel.bin build/boot.o  ${KERNEL_OUT}
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL LINK DONE$(RESET)"
 
 build_debug: ${SRCS} 
 	@echo -e "$(BOLD)$(YELLOW)[✓] KERNEL DEBUG MODE ON$(RESET)"
 	@mkdir -p build
-	@nasm -f elf32 ${BOOT} -o build/boot.o
-	@cargo build
+	@${NASM} -f elf32 ${BOOT} -o build/boot.o
+	@${CARGO} build
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL BUILD DONE$(RESET)"
-	@ld -m elf_i386 -T ${LINKER} -o build/kernel.bin build/boot.o  ${KERNEL_DEBUG_OUT}
+	@${LD} -m elf_i386 -T ${LINKER} -o build/kernel.bin build/boot.o  ${KERNEL_DEBUG_OUT}
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL LINK DONE$(RESET)"
 
 run: build
-	@qemu-system-i386 -kernel ./build/kernel.bin -monitor stdio
+	@${QEMU_SYSTEM} -kernel ./build/kernel.bin -monitor stdio
 	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE$(RESET)"
 
 debug: build_debug
-	@qemu-system-i386 -kernel ${KERNEL_OUT} -s -S &
+	@${QEMU_SYSTEM} -kernel ${KERNEL_OUT} -s -S &
 	@gdb -x .gdbinit
 	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL DEBUG EXIT DONE$(RESET)"
 
@@ -61,15 +103,15 @@ iso: build
 	@mkdir -p build/iso/boot/grub
 	@cp grub/grub.cfg build/iso/boot/grub
 	@cp build/kernel.bin build/iso/boot
-	@grub2-mkrescue -o ${ISO_OUT} build/iso --modules="multiboot"
+	@${GRUB_MKRESCUE} -o ${ISO_OUT} build/iso --modules="multiboot"
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL ISO BUILD$(RESET)"
 
 run-iso: iso
-	@qemu-system-i386 -cdrom ${ISO_OUT}
+	@${QEMU_SYSTEM} -cdrom ${ISO_OUT}
 	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE$(RESET)"
 
 clean:
-	@cargo clean
+	@${CARGO} clean
 	@echo -e "$(BOLD)$(RED)[♻︎] DELETE KERNEL DONE$(RESET)"
 
 fclean: clean
