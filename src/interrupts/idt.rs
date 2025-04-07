@@ -1,5 +1,9 @@
 use core::arch::asm;
+use crate::vga::text_mod::out::print;
+use crate::vga::text_mod::out::ColorCode;
+use crate::vga::text_mod::out::Color;
 
+// This creates and IDT Struct and make it like __attribute__((packed)) in C
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 struct IdtEntry {
@@ -10,12 +14,14 @@ struct IdtEntry {
     offset_high: u16,
 }
 
+// This creates an IDT Pointer Struct and make it like __attribute__((packed)) in C 
 #[repr(C, packed)]
 struct IdtPointer {
-    limit: u16,
-    base: u32,
+    limit: u16, // Size of the IDT - 1
+    base: u32, // Address of the first IDT entry
 }
 
+// Creates an IDT Struct array with 256 entries and set them to zero
 static mut IDT: [IdtEntry; 256] = [IdtEntry {
     offset_low: 0,
     selector: 0,
@@ -25,17 +31,15 @@ static mut IDT: [IdtEntry; 256] = [IdtEntry {
 }; 256];
 
 pub fn init_idt() {
+    // Initialize the IDTPointer first entry the size second the address of the first IDT entry
     let idt_ptr = IdtPointer {
         limit: (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16,
         base: unsafe { &IDT as *const _ as u32 },
     };
-
+    
+    // Load the IDT using the lidt (Load Interrupt Descriptor Table) instruction
     unsafe {
-        asm!(
-            "lidt [{}]",
-            in(reg) &idt_ptr,
-            options(nostack, preserves_flags)
-        );
+        asm!( "lidt [{}]", in(reg) &idt_ptr, options(nostack, preserves_flags));
     }
 }
 

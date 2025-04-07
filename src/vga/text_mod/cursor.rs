@@ -1,6 +1,8 @@
+
+use crate::x86::io::{inb, outb};
+
 #[allow(dead_code)]
 
-use super::io::{inb, outb};
 
 const VGA_CMD_PORT: u16 = 0x3D4;
 const VGA_DATA_PORT: u16 = 0x3D5;

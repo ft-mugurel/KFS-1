@@ -1,92 +1,72 @@
-use crate::interrupts::interrupts::register_interrupt_handler;
 use core::arch::asm;
+use crate::vga::text_mod::out::print;
+use crate::vga::text_mod::out::ColorCode;
+use crate::vga::text_mod::out::Color;
+use crate::interrupts::idt::register_interrupt_handler;
+use crate::x86::io::{inb, outb};
 
-const KEYBOARD_IRQ: u8 = 33; // IRQ1 mapped to interrupt vector 33
-const KEYBOARD_DATA_PORT: u16 = 0x60;
-const PIC_EOI: u8 = 0x20;
-const PIC1_COMMAND: u16 = 0x20;
+#[no_mangle]
+pub extern "C" fn keyboard_interrupt_handler() {
+    // PS/2 klavye veri portu: 0x60
+    let scancode: u8;
+    unsafe {
+        scancode = inb(0x60); // Klavyeden gelen scancode'u oku
+    }
+
+    // ASCII eşlemesi çok basit tutacağız
+    let ch = match scancode {
+        0x02 => '1',
+        0x03 => '2',
+        0x04 => '3',
+        0x05 => '4',
+        0x06 => '5',
+        0x07 => '6',
+        0x08 => '7',
+        0x09 => '8',
+        0x0A => '9',
+        0x0B => '0',
+        0x1E => 'a',
+        0x30 => 'b',
+        0x2E => 'c',
+        0x20 => 'd',
+        0x12 => 'e',
+        0x21 => 'f',
+        0x22 => 'g',
+        0x23 => 'h',
+        0x17 => 'i',
+        0x24 => 'j',
+        0x25 => 'k',
+        0x26 => 'l',
+        0x32 => 'm',
+        0x31 => 'n',
+        0x18 => 'o',
+        0x19 => 'p',
+        0x10 => 'q',
+        0x13 => 'r',
+        0x1F => 's',
+        0x14 => 't',
+        0x16 => 'u',
+        0x2F => 'v',
+        0x11 => 'w',
+        0x2D => 'x',
+        0x15 => 'y',
+        0x2C => 'z',
+        0x39 => ' ',
+        _ => return, // Diğer scancode'ları ignore et
+    };
+
+    print("keybprest", ColorCode::new(Color::White, Color::Black));
+
+    // PIC’e “interrupt tamamlandı” bildirimi (EOI)
+    unsafe {
+        outb(0x20, 0x20); // Master PIC'e EOI gönder
+        asm!("iret", options(nostack, preserves_flags)); // Interrupt'ı tamamla
+    }
+}
 
 pub fn init_keyboard() {
     unsafe {
-        register_interrupt_handler(KEYBOARD_IRQ, keyboard_interrupt_handler);
+        register_interrupt_handler(33, keyboard_interrupt_handler); // IRQ1 = IDT index 32 + 1 = 33
     }
 }
 
-fn custom_format_scancode(buffer: &mut [u8], scancode: u8) -> usize {
-    let mut index = 0;
-
-    // Write "Scancode: " to the buffer
-    let prefix = b"Scancode: ";
-    for &byte in prefix {
-        if index < buffer.len() {
-            buffer[index] = byte;
-            index += 1;
-        }
-    }
-
-    // Convert scancode to ASCII decimal and write to the buffer
-    let mut num = scancode;
-    let mut digits = [0u8; 3]; // Maximum 3 digits for u8
-    let mut digit_count = 0;
-
-    loop {
-        digits[digit_count] = b'0' + (num % 10) as u8;
-        digit_count += 1;
-        num /= 10;
-        if num == 0 {
-            break;
-        }
-    }
-
-    // Write digits in reverse order
-    for i in (0..digit_count).rev() {
-        if index < buffer.len() {
-            buffer[index] = digits[i];
-            index += 1;
-        }
-    }
-
-    // Write newline character
-    if index < buffer.len() {
-        buffer[index] = b'\n';
-        index += 1;
-    }
-
-    index // Return the number of bytes written
-}
-
-extern "C" fn keyboard_interrupt_handler() {
-    let scancode: u8;
-    unsafe {
-        asm!(
-            "in al, dx",
-            in("dx") KEYBOARD_DATA_PORT,
-            out("al") scancode,
-            options(nomem, nostack, preserves_flags)
-        );
-    }
-
-    // Prepare a buffer for the formatted string
-    let mut buffer = [0u8; 32];
-    let len = custom_format_scancode(&mut buffer, scancode);
-
-    // Print the formatted string
-    crate::vga::text_mod::out::print(
-        core::str::from_utf8(&buffer[..len]).unwrap_or("Invalid UTF-8"),
-        crate::vga::text_mod::out::ColorCode::new(
-            crate::vga::text_mod::out::Color::White,
-            crate::vga::text_mod::out::Color::Black,
-        ),
-    );
-
-    // Send End of Interrupt (EOI) to the PIC
-    unsafe {
-        asm!(
-            "mov al, {eoi}",
-            "out dx, al",
-            in("dx") PIC1_COMMAND,
-            eoi = const PIC_EOI,
-            options(nomem, nostack, preserves_flags)
-        );
-    }
-}
