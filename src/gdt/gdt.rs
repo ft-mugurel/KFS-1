@@ -1,4 +1,5 @@
 use core::arch::asm;
+use core::mem::size_of;
 
 #[repr(C, packed)] // This struct ensures correct memory alignment and packing
 #[derive(Copy, Clone)]
@@ -46,11 +47,10 @@ static mut GDT: [GdtEntry; 3] = [
 
 pub fn load_gdt() {
     // We use an unsafe block to access the mutable static GDT
-    let gdt_ptr = unsafe {
-        GdtPointer {
-            limit: (core::mem::size_of_val(&GDT) - 1) as u16,
-            base: &GDT as *const _ as u32, // Take a pointer to GDT, treated as immutable
-        }
+
+    let gdt_ptr =  GdtPointer {
+        limit: (size_of::<[GdtEntry; 7]>() - 1) as u16,
+        base: &raw const GDT as *const _ as usize as u32,
     };
 
     unsafe {

@@ -1,7 +1,6 @@
-use crate::x86::io::{inb, outb};
-use core::arch::asm;
+use crate::x86::io::outb;
 
-pub unsafe fn init_pic() {
+pub(crate) unsafe fn init_pic() {
     // Master PIC: Başlangıç komutları
     outb(0x20, 0x11); // ICW1: Başlangıç
     outb(0x21, 0x20); // ICW2: Master PIC için vektör offset'i 0x20 (32)
@@ -21,11 +20,5 @@ pub unsafe fn init_pic() {
     // Klavye interrupt'ını (IRQ1) etkinleştir
     outb(0x21, 0xFD); // Master PIC: IRQ1 (klavye) için maskeyi kaldır
     outb(0xA1, 0xFF); // Slave PIC'teki interruptları maskele (gerekirse)
-}
-
-pub fn enable_interrupts() {
-    unsafe {
-        asm!("sti", options(nostack, preserves_flags)); // Enable interrupts
-    }
 }
 
