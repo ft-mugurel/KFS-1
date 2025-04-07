@@ -43,7 +43,7 @@ pub fn init_idt() {
     }
 }
 
-pub unsafe fn register_interrupt_handler(index: u8, handler: extern "C" fn()) {
+pub unsafe fn register_interrupt_handler(index: u8, handler: unsafe extern "C" fn()) {
     let handler_addr = handler as u32;
     IDT[index as usize] = IdtEntry {
         offset_low: handler_addr as u16,

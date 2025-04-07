@@ -72,6 +72,18 @@ pub fn print(str: &str, color: ColorCode) {
 }
 
 #[allow(dead_code)]
+pub fn print_char(c: char, color: ColorCode) {
+    let byte = c as u8; // Convert the char to a byte
+    let vga_char = (byte as u16) | (color.0 as u16) << 8;
+
+    unsafe {
+        VGA_BUFFER.offset((CURSOR.y * (VGA_WIDTH as u16) + CURSOR.x) as isize).write_volatile(vga_char);
+    }
+    move_cursor(1, 0);
+}
+
+
+#[allow(dead_code)]
 pub fn newline() {
     unsafe {
         let mut index = VGA_WIDTH * (VGA_HEIGHT - 1);

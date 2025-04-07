@@ -25,6 +25,7 @@ fn panic(_info: &PanicInfo) -> ! {
 
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
+    load_gdt();
     init_idt();
     unsafe {init_pic()};
     init_keyboard();
