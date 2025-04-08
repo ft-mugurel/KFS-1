@@ -1,2 +1,4 @@
 pub mod keyboard;
-pub mod interrupts;
+pub mod idt;
+pub mod pic;
+pub mod utils;

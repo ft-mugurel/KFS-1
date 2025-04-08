@@ -1,6 +1,7 @@
-#[allow(dead_code)]
 
-use super::io::{inb, outb};
+use crate::x86::io::{inb, outb};
+
+
 
 const VGA_CMD_PORT: u16 = 0x3D4;
 const VGA_DATA_PORT: u16 = 0x3D5;
@@ -12,6 +13,7 @@ pub struct Cursor {
 
 pub static mut CURSOR: Cursor = Cursor { x: 0, y: 0 };
 
+#[allow(dead_code)]
 pub fn set_big_cursor() {
     unsafe {
         outb(VGA_CMD_PORT, 0x0A);
@@ -21,6 +23,7 @@ pub fn set_big_cursor() {
     }
 }
 
+#[allow(dead_code)]
 pub fn set_small_cursor() {
     unsafe {
         outb(VGA_CMD_PORT, 0x0A);
@@ -29,6 +32,7 @@ pub fn set_small_cursor() {
         outb(VGA_DATA_PORT, 0x07);
     }
 }
+#[allow(dead_code)]
 pub fn set_cursor_color(color: u8) {
     unsafe {
         outb(VGA_CMD_PORT, 0x0A);
@@ -36,6 +40,7 @@ pub fn set_cursor_color(color: u8) {
         outb(VGA_DATA_PORT, cursor_start | color);
     }
 }
+#[allow(dead_code)]
 pub fn set_cursor_blinking(blink: bool) {
     unsafe {
         outb(VGA_CMD_PORT, 0x0A);
@@ -47,6 +52,7 @@ pub fn set_cursor_blinking(blink: bool) {
         }
     }
 }
+#[allow(dead_code)]
 pub fn set_cursor_blinking_rate(rate: u8) {
     unsafe {
         outb(VGA_CMD_PORT, 0x0A);
@@ -54,6 +60,7 @@ pub fn set_cursor_blinking_rate(rate: u8) {
         outb(VGA_DATA_PORT, (cursor_start & 0xF8) | (rate & 0x07));
     }
 }
+#[allow(dead_code)]
 pub fn set_cursor_shape(start: u8, end: u8) {
     unsafe {
         outb(VGA_CMD_PORT, 0x0A);
@@ -63,7 +70,7 @@ pub fn set_cursor_shape(start: u8, end: u8) {
     }
 }
 
-// #[allow(dead_code)]
+#[allow(dead_code)]
 pub fn move_cursor(dx: i16, dy: i16) {
     unsafe {
         CURSOR.x = (CURSOR.x as i16 + dx).max(0) as u16;
@@ -73,7 +80,7 @@ pub fn move_cursor(dx: i16, dy: i16) {
     }
 }
 
-// #[allow(dead_code)]
+#[allow(dead_code)]
 pub fn set_cursor(x: u16, y: u16) {
     let position = (y * 80 + x) as u16;
     unsafe {
@@ -86,6 +93,7 @@ pub fn set_cursor(x: u16, y: u16) {
     }
 }
 
+#[allow(dead_code)]
 pub fn set_cursor_x(x: u16) {
     unsafe {
         let position = (CURSOR.y * 80 + x) as u16;
@@ -97,6 +105,7 @@ pub fn set_cursor_x(x: u16) {
     }
 }
 
+#[allow(dead_code)]
 pub fn set_cursor_y(y: u16) {
     unsafe {
         let position = (y * 80 + CURSOR.x) as u16;
@@ -108,7 +117,7 @@ pub fn set_cursor_y(y: u16) {
     }
 }
 
-// #[allow(dead_code)]
+#[allow(dead_code)]
 pub fn disable_cursor() {
     unsafe {
         outb(VGA_CMD_PORT, 0x0A);

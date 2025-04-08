@@ -1,11 +1,19 @@
 #![no_std]
 #![no_main]
 
-use core::panic::PanicInfo;
-pub mod vga;
+pub mod x86;
 pub mod interrupts;
+pub mod vga;
+pub mod gdt;
+
+use core::panic::PanicInfo;
+
+use gdt::gdt::load_gdt;
+
 use interrupts::keyboard::init::init_keyboard;
-use vga::text_mod::*;
+use interrupts::idt::init_idt;
+use interrupts::pic::init_pic;
+use interrupts::utils::enable_interrupts;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -14,9 +22,11 @@ fn panic(_info: &PanicInfo) -> ! {
 
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
-    init_keyboard(); // Initialize keyboard interrupts
-    cursor::set_big_cursor();
-    let asd = out::ColorCode::new(out::Color::Yellow, out::Color::Black);
-    out::print("Hello\nHello", asd);
+    load_gdt();
+    init_idt();
+    unsafe {init_pic()};
+    init_keyboard();
+    enable_interrupts();
     loop {}
 }
+
