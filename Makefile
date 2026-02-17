@@ -102,6 +102,14 @@ run-iso: iso
 	@${QEMU_SYSTEM} -cdrom ${ISO_OUT}
 	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE$(RESET)"
 
+run-term: build
+	@${QEMU_SYSTEM} -kernel ./build/kernel.bin -nographic -serial mon:stdio
+	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE (terminal)$(RESET)"
+
+run-iso-term: iso
+	@${QEMU_SYSTEM} -cdrom ${ISO_OUT} -nographic -serial mon:stdio
+	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE (terminal)$(RESET)"
+
 clean:
 	@${CARGO} clean
 	@echo -e "$(BOLD)$(RED)[♻︎] DELETE KERNEL DONE$(RESET)"
