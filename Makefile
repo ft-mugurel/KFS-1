@@ -99,7 +99,11 @@ iso: build
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL ISO BUILD$(RESET)"
 
 run-iso: iso
-	${QEMU_SYSTEM} -cdrom ${ISO_OUT} -boot d -nographic
+	@${QEMU_SYSTEM} -cdrom ${ISO_OUT}
+	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE$(RESET)"
+
+run-iso-term: iso
+	@${QEMU_SYSTEM} -cdrom ${ISO_OUT} -boot d -nographic
 	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE$(RESET)"
 
 clean:

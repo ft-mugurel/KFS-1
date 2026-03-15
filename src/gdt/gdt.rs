@@ -49,7 +49,7 @@ pub fn load_gdt() {
     // We use an unsafe block to access the mutable static GDT
 
     let gdt_ptr =  GdtPointer {
-        limit: (size_of::<[GdtEntry; 7]>() - 1) as u16,
+        limit: (size_of::<[GdtEntry; 3]>() - 1) as u16,
         base: &raw const GDT as *const _ as usize as u32,
     };
 
@@ -71,15 +71,13 @@ pub fn load_gdt() {
             "mov gs, ax",     // Move the value of ax into the gs segment register
             "mov ss, ax",     // Move the value of ax into the stack segment register
 
-            // Switch to code segment (0x08) and jump to the next instruction
-            "mov ax, 0x08",   // Load the code segment selector (1st entry) into ax
-            "mov cs, ax",     // Set the code segment register to 0x08 (the first entry)
-            "jmp 2f",         // Jump to label '2'
-
-            // Label '2:', indicating where the jump will land
-            "2:",             
-
-            options(nostack)
+            // Switch to code segment (0x08) with a far return
+            "push 0x08",
+            "lea eax, [2f]",
+            "push eax",
+            "retf",
+            "2:",
+            out("eax") _,
         );
     }
 }
