@@ -1,11 +1,9 @@
-
 use crate::x86::io::{inb, outb};
-
-
 
 const VGA_CMD_PORT: u16 = 0x3D4;
 const VGA_DATA_PORT: u16 = 0x3D5;
 
+#[derive(Copy, Clone)]
 pub struct Cursor {
     pub x: u16,
     pub y: u16,
@@ -46,9 +44,12 @@ pub fn set_cursor_blinking(blink: bool) {
         outb(VGA_CMD_PORT, 0x0A);
         let cursor_start = inb(VGA_DATA_PORT);
         if blink {
-            outb(VGA_DATA_PORT, cursor_start & 0xFE);
+            // Bit 5 of register 0x0A disables the hardware cursor.
+            // Clear it to keep the default hardware blink visible.
+            outb(VGA_DATA_PORT, cursor_start & !0x20);
         } else {
-            outb(VGA_DATA_PORT, cursor_start | 0x01);
+            // Set bit 5 to hide the cursor when "blinking" is disabled.
+            outb(VGA_DATA_PORT, cursor_start | 0x20);
         }
     }
 }
@@ -82,6 +83,10 @@ pub fn move_cursor(dx: i16, dy: i16) {
 
 #[allow(dead_code)]
 pub fn set_cursor(x: u16, y: u16) {
+    let max_x = 79u16;
+    let max_y = 24u16;
+    let x = x.min(max_x);
+    let y = y.min(max_y);
     let position = (y * 80 + x) as u16;
     unsafe {
         CURSOR.x = x;
@@ -123,5 +128,14 @@ pub fn disable_cursor() {
         outb(VGA_CMD_PORT, 0x0A);
         let cursor_start = inb(VGA_DATA_PORT);
         outb(VGA_DATA_PORT, cursor_start | 0x20);
+    }
+}
+
+#[allow(dead_code)]
+pub fn enable_cursor() {
+    unsafe {
+        outb(VGA_CMD_PORT, 0x0A);
+        let cursor_start = inb(VGA_DATA_PORT);
+        outb(VGA_DATA_PORT, cursor_start & !0x20);
     }
 }

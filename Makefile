@@ -17,6 +17,7 @@ KERNEL_OUT	=	 ./target/i686-kernel/release/libkernel.a
 KERNEL_DEBUG_OUT	=	 ./target/i686-kernel/debug/libkernel.a
 
 ISO_OUT		=	build/kernel.iso
+ISO_FULL_OUT	=	build/kernel-full.iso
 
 BOOT		=	./multiboot/header.asm
 LINKER		=	linker/linker.ld
@@ -30,6 +31,11 @@ FLAGS		=	-fno-builtin -fno-builtin -fno-builtin -nostdlib -nodefaultlibs
 GRUB_MKRESCUE	=	$(shell which grub2-mkrescue 2>/dev/null || which grub-mkrescue 2>/dev/null)
 ifeq ($(GRUB_MKRESCUE),)
 	$(error "grub-mkrescue not found, please install it.")
+endif
+
+GRUB_MODULE_DIR	=	$(shell [ -d /usr/lib/grub/i386-pc ] && echo /usr/lib/grub/i386-pc || ([ -d /usr/lib64/grub/i386-pc ] && echo /usr/lib64/grub/i386-pc))
+ifeq ($(GRUB_MODULE_DIR),)
+	$(error "GRUB i386-pc modules not found. Please install grub-pc-bin or equivalent package.")
 endif
 
 QEMU_SYSTEM	=	$(shell which qemu-system-i386 2>/dev/null || which qemu 2>/dev/null)
@@ -68,12 +74,12 @@ SRCS = $(shell find src -name "*.rs")
 build: 	${SRCS}
 	@mkdir -p build
 	@${NASM} -f elf32 ${BOOT} -o build/boot.o
-	@${CARGO} build --release
+	@${CARGO} build --no-default-features --release
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL BUILD DONE$(RESET)"
 	@${LD} -m elf_i386 -T ${LINKER} -o build/kernel.bin build/boot.o  ${KERNEL_OUT}
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL LINK DONE$(RESET)"
 
-build_debug: ${SRCS} 
+build_debug: ${SRCS}
 	@echo -e "$(BOLD)$(YELLOW)[✓] KERNEL DEBUG MODE ON$(RESET)"
 	@mkdir -p build
 	@${NASM} -f elf32 ${BOOT} -o build/boot.o
@@ -95,11 +101,23 @@ iso: build
 	@mkdir -p build/iso/boot/grub
 	@cp grub/grub.cfg build/iso/boot/grub
 	@cp build/kernel.bin build/iso/boot
-	@${GRUB_MKRESCUE} -o ${ISO_OUT} build/iso --modules="multiboot"
+	@${GRUB_MKRESCUE} -o ${ISO_OUT} build/iso --directory=${GRUB_MODULE_DIR} \
+		--modules="multiboot" --locales="" --fonts="" --themes=""
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL ISO BUILD$(RESET)"
+
+iso-full: build
+	@mkdir -p build/iso/boot/grub
+	@cp grub/grub.cfg build/iso/boot/grub
+	@cp build/kernel.bin build/iso/boot
+	@${GRUB_MKRESCUE} -o ${ISO_FULL_OUT} build/iso --directory=${GRUB_MODULE_DIR} --modules="multiboot"
+	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL FULL ISO BUILD$(RESET)"
 
 run-iso: iso
 	@${QEMU_SYSTEM} -cdrom ${ISO_OUT}
+	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE$(RESET)"
+
+run-iso-full: iso-full
+	@${QEMU_SYSTEM} -cdrom ${ISO_FULL_OUT}
 	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE$(RESET)"
 
 run-iso-term: iso
@@ -107,13 +125,13 @@ run-iso-term: iso
 	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE$(RESET)"
 
 clean:
-	@${CARGO} clean
+	@rm -rf build/
 	@echo -e "$(BOLD)$(RED)[♻︎] DELETE KERNEL DONE$(RESET)"
 
 fclean: clean
-	@rm -rf build/
+	@${CARGO} clean
 	@echo -e "$(BOLD)$(RED)[♻︎] DELETE BUILD/ DONE$(RESET)"
 
-re: fclean all
+re: clean all
 
 .PHONY: all clean fclean re

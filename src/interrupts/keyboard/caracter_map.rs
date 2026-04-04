@@ -1,5 +1,7 @@
 pub static LOWER_CARACTER_MAP: [Option<char>; 128] = {
     let mut map = [None; 128];
+    map[0x0E] = Some('\x08');
+    map[0x1C] = Some('\n');
     map[0x02] = Some('1');
     map[0x03] = Some('2');
     map[0x04] = Some('3');
@@ -42,6 +44,8 @@ pub static LOWER_CARACTER_MAP: [Option<char>; 128] = {
 
 pub static UPPER_CARACTER_MAP: [Option<char>; 128] = {
     let mut map = [None; 128];
+    map[0x0E] = Some('\x08');
+    map[0x1C] = Some('\n');
     map[0x02] = Some('1');
     map[0x03] = Some('2');
     map[0x04] = Some('3');

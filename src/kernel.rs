@@ -14,7 +14,9 @@ use interrupts::keyboard::init::init_keyboard;
 use interrupts::idt::init_idt;
 use interrupts::pic::init_pic;
 use interrupts::utils::enable_interrupts;
-use vga::text_mod::out::{print, Color, ColorCode};
+use vga::text_mod::out::{init_virtual_screens, print};
+
+use crate::vga::text_mod::cursor::{set_big_cursor, set_cursor_blinking};
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -27,8 +29,10 @@ pub extern "C" fn kmain() -> ! {
     init_idt();
     unsafe {init_pic()};
     init_keyboard();
+    set_big_cursor();
     enable_interrupts();
-    print("test", ColorCode::new(Color::White, Color::Black));
+    init_virtual_screens();
+    print("42");
     loop {}
 }
 
