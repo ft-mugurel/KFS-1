@@ -16,7 +16,7 @@ use interrupts::pic::init_pic;
 use interrupts::utils::enable_interrupts;
 use vga::text_mod::out::{init_virtual_screens, print};
 
-use crate::vga::text_mod::cursor::{set_big_cursor, set_cursor_blinking};
+use crate::vga::text_mod::cursor::{set_big_cursor};
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
