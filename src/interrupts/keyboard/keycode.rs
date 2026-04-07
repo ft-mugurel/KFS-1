@@ -71,6 +71,12 @@ pub enum KeyCode {
     F4,
     F5,
     F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -235,6 +241,12 @@ pub fn decode_set1_scancode(scancode: u8, extended: bool) -> Option<KeyEvent> {
             0x3E => KeyCode::F4,
             0x3F => KeyCode::F5,
             0x40 => KeyCode::F6,
+            0x41 => KeyCode::F7,
+            0x42 => KeyCode::F8,
+            0x43 => KeyCode::F9,
+            0x44 => KeyCode::F10,
+            0x57 => KeyCode::F11,
+            0x58 => KeyCode::F12,
             _ => return None,
         }
     };

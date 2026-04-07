@@ -3,6 +3,7 @@
 
 pub mod x86;
 pub mod interrupts;
+pub mod shell;
 pub mod vga;
 pub mod gdt;
 
@@ -14,9 +15,8 @@ use interrupts::keyboard::init::init_keyboard;
 use interrupts::idt::init_idt;
 use interrupts::pic::init_pic;
 use interrupts::utils::enable_interrupts;
-use vga::text_mod::out::{init_virtual_screens, print};
-
-use crate::vga::text_mod::cursor::{set_big_cursor};
+use vga::text_mod::out::init_virtual_screens;
+use shell::init::init_shell;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -28,11 +28,9 @@ pub extern "C" fn kmain() -> ! {
     load_gdt();
     init_idt();
     unsafe {init_pic()};
-    init_keyboard();
-    set_big_cursor();
-    enable_interrupts();
     init_virtual_screens();
-    print("42");
+    init_keyboard();
+    enable_interrupts();
+    init_shell();
     loop {}
 }
-

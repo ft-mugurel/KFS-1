@@ -1,6 +1,9 @@
 use crate::interrupts::idt::register_interrupt_handler;
 use crate::interrupts::keyboard::character_map::*;
 use crate::interrupts::keyboard::keycode::{decode_set1_scancode, KeyCode, KeyEvent, Modifiers};
+use crate::vga::text_mod::cursor::{
+    disable_cursor, enable_cursor, set_big_cursor, set_cursor_shape, set_small_cursor,
+};
 use crate::vga::text_mod::out::{
     move_cursor_down, move_cursor_left, move_cursor_right, move_cursor_up, print_char,
     scroll_view_down, scroll_view_up, switch_screen,
@@ -45,6 +48,11 @@ fn handle_key_press(event: KeyEvent, modifiers: Modifiers) -> bool {
         KeyCode::F4 => switch_screen(3),
         KeyCode::F5 => switch_screen(4),
         KeyCode::F6 => switch_screen(5),
+        KeyCode::F7 => set_big_cursor(),
+        KeyCode::F8 => set_small_cursor(),
+        KeyCode::F9 => set_cursor_shape(0, 15),
+        KeyCode::F10 => disable_cursor(),
+        KeyCode::F11 => enable_cursor(),
         _ => {
             if !modifiers.has_text_blocking_modifier() {
                 if let Some(ch) = keycode_to_char(event.key, modifiers) {

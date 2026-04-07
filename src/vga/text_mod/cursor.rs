@@ -1,30 +1,6 @@
 use super::out;
 use crate::x86::io::{inb, outb};
 
-macro_rules! active_screen_index {
-    () => {
-        out::current_screen_index()
-    };
-}
-
-macro_rules! active_cursor {
-    ($screen_index:expr) => {
-        out::SCREEN_CURSORS[$screen_index]
-    };
-}
-
-macro_rules! active_cursor_mut {
-    ($screen_index:expr) => {
-        &mut out::SCREEN_CURSORS[$screen_index]
-    };
-}
-
-macro_rules! active_used_lines {
-    ($screen_index:expr) => {
-        out::SCREEN_USED_LINES[$screen_index]
-    };
-}
-
 const VGA_CMD_PORT: u16 = 0x3D4;
 const VGA_DATA_PORT: u16 = 0x3D5;
 
@@ -103,81 +79,69 @@ pub fn enable_cursor() {
 }
 
 fn move_to(x: usize, y: usize) {
-    let screen_index = active_screen_index!();
-    unsafe {
-        let cursor = active_cursor_mut!(screen_index);
-        cursor.x = x.min(out::VGA_WIDTH - 1) as u16;
-        cursor.y = y.min(out::SCROLLBACK_LINES - 1) as u16;
-        let cursor_line = usize::from(cursor.y);
-        if cursor_line + 1 > active_used_lines!(screen_index) {
-            active_used_lines!(screen_index) = cursor_line + 1;
-        }
-        out::sync_screen_state(screen_index);
+    let screen_index = out::current_screen_index();
+    let clamped_x = x.min(out::VGA_WIDTH - 1);
+    let clamped_y = y.min(out::SCROLLBACK_LINES - 1);
+    out::set_cursor(screen_index, clamped_x, clamped_y);
+
+    if clamped_y + 1 > out::used_lines_of_screen(screen_index) {
+        out::set_used_lines(screen_index, clamped_y + 1);
     }
 
+    out::sync_screen_state(screen_index);
     out::render_screen(screen_index);
 }
 
 pub(super) fn move_left() {
-    let screen_index = active_screen_index!();
-    unsafe {
-        if active_cursor!(screen_index).x > 0 {
-            let cursor = active_cursor!(screen_index);
-            move_to(usize::from(cursor.x - 1), usize::from(cursor.y));
-        }
+    let screen_index = out::current_screen_index();
+    let cursor = out::cursor_of_screen(screen_index);
+    if cursor.x > 0 {
+        move_to(usize::from(cursor.x - 1), usize::from(cursor.y));
     }
 }
 
 pub(super) fn move_right() {
-    let screen_index = active_screen_index!();
-    unsafe {
-        if usize::from(active_cursor!(screen_index).x) + 1 < out::VGA_WIDTH {
-            let cursor = active_cursor!(screen_index);
-            move_to(usize::from(cursor.x + 1), usize::from(cursor.y));
-        }
+    let screen_index = out::current_screen_index();
+    let cursor = out::cursor_of_screen(screen_index);
+    if usize::from(cursor.x) + 1 < out::VGA_WIDTH {
+        move_to(usize::from(cursor.x + 1), usize::from(cursor.y));
     }
 }
 
 pub(super) fn move_up() {
-    let screen_index = active_screen_index!();
-    unsafe {
-        if active_cursor!(screen_index).y > 0 {
-            let cursor = active_cursor!(screen_index);
-            move_to(usize::from(cursor.x), usize::from(cursor.y - 1));
-        }
+    let screen_index = out::current_screen_index();
+    let cursor = out::cursor_of_screen(screen_index);
+    if cursor.y > 0 {
+        move_to(usize::from(cursor.x), usize::from(cursor.y - 1));
     }
 }
 
 pub(super) fn move_down() {
-    let screen_index = active_screen_index!();
-    unsafe {
-        if usize::from(active_cursor!(screen_index).y) + 1 < active_used_lines!(screen_index) {
-            let cursor = active_cursor!(screen_index);
-            move_to(usize::from(cursor.x), usize::from(cursor.y + 1));
-        }
+    let screen_index = out::current_screen_index();
+    let cursor = out::cursor_of_screen(screen_index);
+    if usize::from(cursor.y) + 1 < out::used_lines_of_screen(screen_index) {
+        move_to(usize::from(cursor.x), usize::from(cursor.y + 1));
     }
 }
 
 pub(super) fn sync_hardware_cursor(screen_index: usize) {
-    unsafe {
-        if !out::cursor_visible(screen_index) {
-            disable_cursor();
-            return;
-        }
+    if !out::cursor_visible(screen_index) {
+        disable_cursor();
+        return;
+    }
 
-        let top_line = out::visible_top_line(screen_index);
-        let cursor = active_cursor!(screen_index);
-        let cursor_x = usize::from(cursor.x);
-        let cursor_y = usize::from(cursor.y);
+    let top_line = out::visible_top_line(screen_index);
+    let cursor = out::cursor_of_screen(screen_index);
+    let cursor_x = usize::from(cursor.x);
+    let cursor_y = usize::from(cursor.y);
 
-        if cursor_y >= top_line && cursor_y < top_line + out::VGA_HEIGHT {
-            enable_cursor();
-            set_cursor(
-                cursor_x.min(out::VGA_WIDTH - 1) as u16,
-                (cursor_y - top_line) as u16,
-            );
-        } else {
-            disable_cursor();
-        }
+    if cursor_y >= top_line && cursor_y < top_line + out::VGA_HEIGHT {
+        enable_cursor();
+        set_cursor(
+            cursor_x.min(out::VGA_WIDTH - 1) as u16,
+            (cursor_y - top_line) as u16,
+        );
+    } else {
+        disable_cursor();
     }
 }

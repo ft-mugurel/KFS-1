@@ -1,98 +1,113 @@
-#[macro_export]
-macro_rules! print {
-    ($($arg:tt)*) => ({
-        use crate::vga::text_mod::out::{print, ColorCode, Color};
-        let _ = writeln!(&mut io::stdout(), $($arg)*);
-    });
-}
-
 use super::out;
 
-fn blank_cell() -> u16 {
-    unsafe { (b' ' as u16) | ((out::CURRENT_COLOR.0 as u16) << 8) }
-}
+fn finalize_write(
+    screen_index: usize,
+    top_line_before: usize,
+    changed_cell: Option<(usize, usize)>,
+    force_full_redraw: bool,
+) {
+    out::sync_screen_state(screen_index);
 
-fn newline_with_scroll() {
-    let screen_index = out::current_screen_index();
-    unsafe {
-        let cursor = &mut out::SCREEN_CURSORS[screen_index];
-        cursor.x = 0;
-
-        let next_line = usize::from(cursor.y) + 1;
-        if next_line >= out::SCROLLBACK_LINES {
-            out::shift_buffer_up(screen_index);
-            cursor.y = (out::SCROLLBACK_LINES - 1) as u16;
-        } else {
-            cursor.y = next_line as u16;
-        }
-
-        let cursor_line = usize::from(cursor.y);
-        if cursor_line + 1 > out::SCREEN_USED_LINES[screen_index] {
-            out::SCREEN_USED_LINES[screen_index] = cursor_line + 1;
-            out::clear_buffer_line(screen_index, cursor_line);
-        }
-
-        out::sync_screen_state(screen_index);
+    let top_line_after = out::visible_top_line(screen_index);
+    if force_full_redraw || top_line_after != top_line_before {
+        out::render_screen(screen_index);
+        return;
     }
 
-    out::render_screen(screen_index);
-}
-
-fn backspace() {
-    let screen_index = out::current_screen_index();
-    unsafe {
-        let cursor = &mut out::SCREEN_CURSORS[screen_index];
-        if cursor.x > 0 {
-            cursor.x -= 1;
-        } else if cursor.y > 0 {
-            cursor.y -= 1;
-            cursor.x = (out::VGA_WIDTH - 1) as u16;
-        } else {
-            return;
-        }
-
-        let index = out::cell_index(usize::from(cursor.y), usize::from(cursor.x));
-        out::SCREEN_BUFFERS[screen_index][index] = blank_cell();
-        out::sync_screen_state(screen_index);
+    if let Some((line, column)) = changed_cell {
+        out::render_cell_if_visible(screen_index, line, column);
     }
 
-    out::render_screen(screen_index);
+    out::sync_cursor(screen_index);
+}
+
+fn newline_with_scroll(screen_index: usize) -> bool {
+    let mut cursor = out::cursor_of_screen(screen_index);
+    cursor.x = 0;
+    let mut force_full_redraw = false;
+
+    let next_line = usize::from(cursor.y) + 1;
+    if next_line >= out::SCROLLBACK_LINES {
+        out::shift_buffer_up(screen_index);
+        cursor.y = (out::SCROLLBACK_LINES - 1) as u16;
+        force_full_redraw = true;
+    } else {
+        cursor.y = next_line as u16;
+    }
+
+    let cursor_line = usize::from(cursor.y);
+    let used_lines = out::used_lines_of_screen(screen_index);
+    if cursor_line + 1 > used_lines {
+        out::set_used_lines(screen_index, cursor_line + 1);
+        out::clear_buffer_line(screen_index, cursor_line);
+    }
+
+    out::set_cursor(screen_index, usize::from(cursor.x), usize::from(cursor.y));
+
+    force_full_redraw
+}
+
+fn backspace(screen_index: usize) -> Option<(usize, usize)> {
+    let mut cursor = out::cursor_of_screen(screen_index);
+    if cursor.x > 0 {
+        cursor.x -= 1;
+    } else if cursor.y > 0 {
+        cursor.y -= 1;
+        cursor.x = (out::VGA_WIDTH - 1) as u16;
+    } else {
+        return None;
+    }
+
+    let line = usize::from(cursor.y);
+    let column = usize::from(cursor.x);
+    out::set_cursor(screen_index, usize::from(cursor.x), usize::from(cursor.y));
+    out::write_blank_cell(screen_index, line, column);
+
+    Some((line, column))
 }
 
 fn write_byte(byte: u8) {
     let screen_index = out::current_screen_index();
+    let top_line_before = out::visible_top_line(screen_index);
 
     match byte {
-        b'\n' => newline_with_scroll(),
-        b'\r' => unsafe {
-            out::SCREEN_CURSORS[screen_index].x = 0;
-            out::render_screen(screen_index);
-        },
-        0x08 => backspace(),
+        b'\n' => {
+            let force_full_redraw = newline_with_scroll(screen_index);
+            finalize_write(screen_index, top_line_before, None, force_full_redraw);
+        }
+        b'\r' => {
+            out::set_cursor_x(screen_index, 0);
+            finalize_write(screen_index, top_line_before, None, false);
+        }
+        0x08 => {
+            if let Some(changed_cell) = backspace(screen_index) {
+                finalize_write(screen_index, top_line_before, Some(changed_cell), false);
+            }
+        }
         b'\t' => {
             for _ in 0..4 {
                 write_byte(b' ');
             }
         }
         byte => {
-            let cursor = out::current_cursor();
+            let cursor = out::cursor_of_screen(screen_index);
+            let line = usize::from(cursor.y);
+            let column = usize::from(cursor.x);
             let vga_char = (byte as u16) | ((unsafe { out::CURRENT_COLOR.0 } as u16) << 8);
-            out::write_cell(
-                screen_index,
-                usize::from(cursor.y),
-                usize::from(cursor.x),
-                vga_char,
-            );
+            out::write_cell(screen_index, line, column, vga_char);
 
-            unsafe {
-                out::SCREEN_CURSORS[screen_index].x =
-                    out::SCREEN_CURSORS[screen_index].x.saturating_add(1);
-                if usize::from(out::SCREEN_CURSORS[screen_index].x) >= out::VGA_WIDTH {
-                    newline_with_scroll();
-                } else {
-                    out::sync_screen_state(screen_index);
-                    out::render_screen(screen_index);
-                }
+            let next_x = column + 1;
+            if next_x >= out::VGA_WIDTH {
+                let force_full_redraw = newline_with_scroll(screen_index);
+                finalize_write(
+                    screen_index,
+                    top_line_before,
+                    Some((line, column)),
+                    force_full_redraw,
+                );
+            } else {
+                out::set_cursor(screen_index, next_x, line);
+                finalize_write(screen_index, top_line_before, Some((line, column)), false);
             }
         }
     }
@@ -110,6 +125,5 @@ pub fn write_char(c: char) {
 }
 
 pub fn newline() {
-    newline_with_scroll();
+    write_byte(b'\n');
 }
-
