@@ -1,2 +1,3 @@
 pub mod init;
-pub mod caracter_map;
+pub mod character_map;
+pub mod keycode;
