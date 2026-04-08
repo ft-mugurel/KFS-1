@@ -3,6 +3,7 @@ OUTPUT_FORMAT(elf32-i386)
 
 PHDRS {
 	boot PT_LOAD;
+	gdt PT_LOAD;
 	text PT_LOAD;
 	data PT_LOAD;
 	rodata PT_LOAD;
@@ -14,6 +15,12 @@ SECTIONS {
 	.multiboot ALIGN(1K) : {
 		KEEP(*(.multiboot))
 	} : boot
+
+	. = 0x00000800;
+
+	.gdt ALIGN(8) : {
+		KEEP(*(.gdt))
+	} : gdt
 
 	. = 1M;
 

@@ -26,7 +26,7 @@ fn handle_key_press(event: KeyEvent, modifiers: Modifiers) -> bool {
         return true;
     }
 
-    if active_screen_accepts_input() && !modifiers.has_text_blocking_modifier() {
+    if active_screen_accepts_input() {
         if handle_shell_key_event(event, modifiers) {
             return false;
         }

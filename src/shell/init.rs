@@ -4,6 +4,7 @@ use core::str;
 use crate::interrupts::keyboard::character_map::keycode_to_char;
 use crate::interrupts::keyboard::keycode::{KeyCode, KeyEvent, Modifiers};
 use crate::interrupts::utils::{request_reboot, request_shutdown};
+use crate::printk;
 use crate::printk::{set_log_level, KernelLogLevel};
 use crate::vga::text_mod::out::{
     self, active_screen_accepts_input, change_color, clear, newline_on, print, print_char_on,
@@ -161,10 +162,8 @@ pub fn handle_shell_key_event(event: KeyEvent, modifiers: Modifiers) -> bool {
                         SHELL_SCREEN_INDEX,
                         "help clear echo shutdown screen loglevel color\n",
                     );
-                    print_on(SHELL_SCREEN_INDEX, PROMPT);
-                    state.idx = 0;
-                    state.len = 0;
-                    state.rendered_len = PROMPT.len();
+                    state.clear_input();
+                    redraw_input_line();
                     return;
                 }
                 let start = state.input[..state.idx]
@@ -185,6 +184,16 @@ pub fn handle_shell_key_event(event: KeyEvent, modifiers: Modifiers) -> bool {
             if !modifiers.has_text_blocking_modifier() {
                 if let Some(ch) = keycode_to_char(event.key, modifiers) {
                     let _ = try_insert_char(ch);
+                    return true;
+                }
+            } else {
+				printk!("key event with modifiers: {:?} {:?}\n", event.key, modifiers);
+                if event.key == KeyCode::C && modifiers.ctrl() {
+                    newline_on(SHELL_SCREEN_INDEX);
+                    with_shell_state_mut(|state| {
+                        state.clear_input();
+                    });
+                    redraw_input_line();
                     return true;
                 }
             }

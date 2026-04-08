@@ -18,38 +18,45 @@ pub struct GdtPointer {
     pub base: u32,   // Base address of the GDT
 }
 
-static mut GDT: [GdtEntry; 3] = [
-    GdtEntry { 
-        limit_low: 0, 
-        base_low: 0, 
-        base_middle: 0, 
-        access: 0, 
-        granularity: 0, 
-        base_high: 0, 
-    }, // Null Segment (GDT[0])
-    GdtEntry { 
-        limit_low: 0xFFFF, 
-        base_low: 0, 
-        base_middle: 0, 
-        access: 0x9A, // Access byte (present, ring 0, code segment)
-        granularity: 0xCF, // Granularity byte (32-bit)
-        base_high: 0, 
-    }, // Code Segment (GDT[1])
-    GdtEntry { 
-        limit_low: 0xFFFF, 
-        base_low: 0, 
-        base_middle: 0, 
-        access: 0x92, // Access byte (present, ring 0, data segment)
-        granularity: 0xCF, 
-        base_high: 0, 
-    }, // Data Segment (GDT[2])
+const GDT_LIMIT_BYTES: u32 = 10 * 1024 * 1024;
+const GDT_LIMIT_FIELD: u32 = (GDT_LIMIT_BYTES >> 12) - 1;
+const GDT_GRANULARITY: u8 = 0xC0 | ((GDT_LIMIT_FIELD >> 16) as u8 & 0x0F);
+
+const fn make_entry(access: u8) -> GdtEntry {
+    GdtEntry {
+        limit_low: GDT_LIMIT_FIELD as u16,
+        base_low: 0,
+        base_middle: 0,
+        access,
+        granularity: GDT_GRANULARITY,
+        base_high: 0,
+    }
+}
+
+#[unsafe(link_section = ".gdt")]
+#[used]
+static GDT: [GdtEntry; 7] = [
+    GdtEntry {
+        limit_low: 0,
+        base_low: 0,
+        base_middle: 0,
+        access: 0,
+        granularity: 0,
+        base_high: 0,
+    }, // Null segment
+    make_entry(0x9A), // Kernel code
+    make_entry(0x92), // Kernel data
+    make_entry(0x96), // Kernel stack (expand-down data segment)
+    make_entry(0xFA), // User code
+    make_entry(0xF2), // User data
+    make_entry(0xF6), // User stack (expand-down data segment)
 ];
 
 pub fn load_gdt() {
     // We use an unsafe block to access the mutable static GDT
 
     let gdt_ptr =  GdtPointer {
-        limit: (size_of::<[GdtEntry; 3]>() - 1) as u16,
+        limit: (size_of::<[GdtEntry; 7]>() - 1) as u16,
         base: &raw const GDT as *const _ as usize as u32,
     };
 
