@@ -1,87 +1,75 @@
+use super::out;
 use crate::x86::io::{inb, outb};
+
+macro_rules! active_screen_index {
+    () => {
+        out::current_screen_index()
+    };
+}
+
+macro_rules! active_cursor {
+    ($screen_index:expr) => {
+        out::SCREEN_CURSORS[$screen_index]
+    };
+}
+
+macro_rules! active_cursor_mut {
+    ($screen_index:expr) => {
+        &mut out::SCREEN_CURSORS[$screen_index]
+    };
+}
+
+macro_rules! active_used_lines {
+    ($screen_index:expr) => {
+        out::SCREEN_USED_LINES[$screen_index]
+    };
+}
 
 const VGA_CMD_PORT: u16 = 0x3D4;
 const VGA_DATA_PORT: u16 = 0x3D5;
 
-#[derive(Copy, Clone)]
-pub struct Cursor {
-    pub x: u16,
-    pub y: u16,
-}
+fn write_cursor_shape(start: u8, end: u8) {
+    unsafe {
+        outb(VGA_CMD_PORT, 0x0A);
+        let cursor_start = inb(VGA_DATA_PORT);
+        outb(VGA_DATA_PORT, (cursor_start & 0xE0) | (start & 0x1F));
 
-pub static mut CURSOR: Cursor = Cursor { x: 0, y: 0 };
+        outb(VGA_CMD_PORT, 0x0B);
+        let cursor_end = inb(VGA_DATA_PORT);
+        outb(VGA_DATA_PORT, (cursor_end & 0xE0) | (end & 0x1F));
+    }
+}
 
 #[allow(dead_code)]
 pub fn set_big_cursor() {
-    unsafe {
-        outb(VGA_CMD_PORT, 0x0A);
-        outb(VGA_DATA_PORT, 0x00);
-        outb(VGA_CMD_PORT, 0x0B);
-        outb(VGA_DATA_PORT, 0x0F);
-    }
+    write_cursor_shape(0x00, 0x0F);
 }
 
 #[allow(dead_code)]
 pub fn set_small_cursor() {
-    unsafe {
-        outb(VGA_CMD_PORT, 0x0A);
-        outb(VGA_DATA_PORT, 0x20);
-        outb(VGA_CMD_PORT, 0x0B);
-        outb(VGA_DATA_PORT, 0x07);
-    }
+    write_cursor_shape(0x0E, 0x0F);
 }
+
 #[allow(dead_code)]
 pub fn set_cursor_color(color: u8) {
-    unsafe {
-        outb(VGA_CMD_PORT, 0x0A);
-        let cursor_start = inb(VGA_DATA_PORT);
-        outb(VGA_DATA_PORT, cursor_start | color);
-    }
+    write_cursor_shape(color & 0x0F, 0x0F);
 }
+
+/*  Couldn't figure this one out. Also, not needed for now
 #[allow(dead_code)]
 pub fn set_cursor_blinking(blink: bool) {
-    unsafe {
-        outb(VGA_CMD_PORT, 0x0A);
-        let cursor_start = inb(VGA_DATA_PORT);
-        if blink {
-            // Bit 5 of register 0x0A disables the hardware cursor.
-            // Clear it to keep the default hardware blink visible.
-            outb(VGA_DATA_PORT, cursor_start & !0x20);
-        } else {
-            // Set bit 5 to hide the cursor when "blinking" is disabled.
-            outb(VGA_DATA_PORT, cursor_start | 0x20);
-        }
-    }
+    out::set_cursor_visible(out::current_screen_index(), blink);
 }
+
 #[allow(dead_code)]
 pub fn set_cursor_blinking_rate(rate: u8) {
-    unsafe {
-        outb(VGA_CMD_PORT, 0x0A);
-        let cursor_start = inb(VGA_DATA_PORT);
-        outb(VGA_DATA_PORT, (cursor_start & 0xF8) | (rate & 0x07));
-    }
-}
-#[allow(dead_code)]
+    write_cursor_shape(0x00, rate.min(0x0F));
+} */
+
 pub fn set_cursor_shape(start: u8, end: u8) {
-    unsafe {
-        outb(VGA_CMD_PORT, 0x0A);
-        outb(VGA_DATA_PORT, start);
-        outb(VGA_CMD_PORT, 0x0B);
-        outb(VGA_DATA_PORT, end);
-    }
+    write_cursor_shape(start, end);
 }
 
-#[allow(dead_code)]
-pub fn move_cursor(dx: i16, dy: i16) {
-    unsafe {
-        CURSOR.x = (CURSOR.x as i16 + dx).max(0) as u16;
-        CURSOR.y = (CURSOR.y as i16 + dy).max(0) as u16;
-
-        set_cursor(CURSOR.x, CURSOR.y);
-    }
-}
-
-#[allow(dead_code)]
 pub fn set_cursor(x: u16, y: u16) {
     let max_x = 79u16;
     let max_y = 24u16;
@@ -89,32 +77,6 @@ pub fn set_cursor(x: u16, y: u16) {
     let y = y.min(max_y);
     let position = (y * 80 + x) as u16;
     unsafe {
-        CURSOR.x = x;
-        CURSOR.y = y;
-        outb(VGA_CMD_PORT, 0x0E);
-        outb(VGA_DATA_PORT, (position >> 8) as u8);
-        outb(VGA_CMD_PORT, 0x0F);
-        outb(VGA_DATA_PORT, (position & 0xFF) as u8);
-    }
-}
-
-#[allow(dead_code)]
-pub fn set_cursor_x(x: u16) {
-    unsafe {
-        let position = (CURSOR.y * 80 + x) as u16;
-        CURSOR.x = x;
-        outb(VGA_CMD_PORT, 0x0E);
-        outb(VGA_DATA_PORT, (position >> 8) as u8);
-        outb(VGA_CMD_PORT, 0x0F);
-        outb(VGA_DATA_PORT, (position & 0xFF) as u8);
-    }
-}
-
-#[allow(dead_code)]
-pub fn set_cursor_y(y: u16) {
-    unsafe {
-        let position = (y * 80 + CURSOR.x) as u16;
-        CURSOR.y = y;
         outb(VGA_CMD_PORT, 0x0E);
         outb(VGA_DATA_PORT, (position >> 8) as u8);
         outb(VGA_CMD_PORT, 0x0F);
@@ -137,5 +99,85 @@ pub fn enable_cursor() {
         outb(VGA_CMD_PORT, 0x0A);
         let cursor_start = inb(VGA_DATA_PORT);
         outb(VGA_DATA_PORT, cursor_start & !0x20);
+    }
+}
+
+fn move_to(x: usize, y: usize) {
+    let screen_index = active_screen_index!();
+    unsafe {
+        let cursor = active_cursor_mut!(screen_index);
+        cursor.x = x.min(out::VGA_WIDTH - 1) as u16;
+        cursor.y = y.min(out::SCROLLBACK_LINES - 1) as u16;
+        let cursor_line = usize::from(cursor.y);
+        if cursor_line + 1 > active_used_lines!(screen_index) {
+            active_used_lines!(screen_index) = cursor_line + 1;
+        }
+        out::sync_screen_state(screen_index);
+    }
+
+    out::render_screen(screen_index);
+}
+
+pub(super) fn move_left() {
+    let screen_index = active_screen_index!();
+    unsafe {
+        if active_cursor!(screen_index).x > 0 {
+            let cursor = active_cursor!(screen_index);
+            move_to(usize::from(cursor.x - 1), usize::from(cursor.y));
+        }
+    }
+}
+
+pub(super) fn move_right() {
+    let screen_index = active_screen_index!();
+    unsafe {
+        if usize::from(active_cursor!(screen_index).x) + 1 < out::VGA_WIDTH {
+            let cursor = active_cursor!(screen_index);
+            move_to(usize::from(cursor.x + 1), usize::from(cursor.y));
+        }
+    }
+}
+
+pub(super) fn move_up() {
+    let screen_index = active_screen_index!();
+    unsafe {
+        if active_cursor!(screen_index).y > 0 {
+            let cursor = active_cursor!(screen_index);
+            move_to(usize::from(cursor.x), usize::from(cursor.y - 1));
+        }
+    }
+}
+
+pub(super) fn move_down() {
+    let screen_index = active_screen_index!();
+    unsafe {
+        if usize::from(active_cursor!(screen_index).y) + 1 < active_used_lines!(screen_index) {
+            let cursor = active_cursor!(screen_index);
+            move_to(usize::from(cursor.x), usize::from(cursor.y + 1));
+        }
+    }
+}
+
+pub(super) fn sync_hardware_cursor(screen_index: usize) {
+    unsafe {
+        if !out::cursor_visible(screen_index) {
+            disable_cursor();
+            return;
+        }
+
+        let top_line = out::visible_top_line(screen_index);
+        let cursor = active_cursor!(screen_index);
+        let cursor_x = usize::from(cursor.x);
+        let cursor_y = usize::from(cursor.y);
+
+        if cursor_y >= top_line && cursor_y < top_line + out::VGA_HEIGHT {
+            enable_cursor();
+            set_cursor(
+                cursor_x.min(out::VGA_WIDTH - 1) as u16,
+                (cursor_y - top_line) as u16,
+            );
+        } else {
+            disable_cursor();
+        }
     }
 }
