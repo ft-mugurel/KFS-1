@@ -11,11 +11,11 @@ fn finalize_write(
     top_line_before: usize,
     outcome: WriteOutcome,
 ) {
-    screen::sync_screen_state(screen);
-
     if !screen::is_screen_active(screen) {
         return;
     }
+
+    screen::sync_screen_state(screen);
 
     let top_line_after = screen::visible_top_line_of(screen);
     if outcome.force_full_redraw || top_line_after != top_line_before {

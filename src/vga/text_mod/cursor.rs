@@ -1,9 +1,14 @@
-// use super::out;
 use super::screen;
 use crate::x86::io::{inb, outb};
 
 const VGA_CMD_PORT: u16 = 0x3D4;
 const VGA_DATA_PORT: u16 = 0x3D5;
+
+#[derive(Copy, Clone)]
+pub(super) struct ScreenCursor {
+    pub x: u16,
+    pub y: u16,
+}
 
 #[allow(dead_code)]
 pub fn set_big_cursor() {
@@ -78,48 +83,57 @@ fn write_cursor_shape(start: u8, end: u8) {
     }
 }
 
-fn move_to(x: usize, y: usize) {
+pub(super) fn move_on(screen: &mut screen::VirtualScreen, x: usize, y: usize) {
     let clamped_x = x.min(screen::VGA_WIDTH - 1);
     let clamped_y = y.min(screen::SCROLLBACK_LINES - 1);
-    screen::with_active_screen_mut(|screen| {
-        screen.cursor.x = clamped_x as u16;
-        screen.cursor.y = clamped_y as u16;
-        if clamped_y + 1 > screen.used_lines {
-            screen.used_lines = clamped_y + 1;
-        }
+    screen.cursor.x = clamped_x as u16;
+    screen.cursor.y = clamped_y as u16;
+    if clamped_y + 1 > screen.used_lines {
+        screen.used_lines = clamped_y + 1;
+    }
 
-        screen::sync_screen_state(screen);
-        screen::render_screen(screen);
-    });
+    screen::sync_screen_state(screen);
+    screen::render_screen(screen);
 }
 
 pub(super) fn move_left() {
-    let cursor = screen::with_active_screen(|screen| screen.cursor);
-    if cursor.x > 0 {
-        move_to(usize::from(cursor.x - 1), usize::from(cursor.y));
-    }
+    screen::with_active_screen_mut(|screen| {
+        let (cursor, movement) = (screen.cursor, screen.cursor_movement);
+        if movement & screen::CursorMovement::Horizontal && cursor.x > 0 {
+            move_on(screen, usize::from(cursor.x - 1), usize::from(cursor.y));
+        }
+    });
 }
 
 pub(super) fn move_right() {
-    let cursor = screen::with_active_screen(|screen| screen.cursor);
-    if usize::from(cursor.x) + 1 < screen::VGA_WIDTH {
-        move_to(usize::from(cursor.x + 1), usize::from(cursor.y));
-    }
+    screen::with_active_screen_mut(|screen| {
+        let (cursor, movement) = (screen.cursor, screen.cursor_movement);
+        if movement & screen::CursorMovement::Horizontal
+            && usize::from(cursor.x) + 1 < screen::VGA_WIDTH
+        {
+            move_on(screen, usize::from(cursor.x + 1), usize::from(cursor.y));
+        }
+    });
 }
 
 pub(super) fn move_up() {
-    let cursor = screen::with_active_screen(|screen| screen.cursor);
-    if cursor.y > 0 {
-        move_to(usize::from(cursor.x), usize::from(cursor.y - 1));
-    }
+    screen::with_active_screen_mut(|screen| {
+        let (cursor, movement) = (screen.cursor, screen.cursor_movement);
+        if movement & screen::CursorMovement::Vertical && cursor.y > 0 {
+            move_on(screen, usize::from(cursor.x), usize::from(cursor.y - 1));
+        }
+    });
 }
 
 pub(super) fn move_down() {
-    let (cursor, used_lines) =
-        screen::with_active_screen(|screen| (screen.cursor, screen.used_lines));
-    if usize::from(cursor.y) + 1 < used_lines {
-        move_to(usize::from(cursor.x), usize::from(cursor.y + 1));
-    }
+    screen::with_active_screen_mut(|screen| {
+        let (cursor, movement) = (screen.cursor, screen.cursor_movement);
+        if movement & screen::CursorMovement::Vertical
+            && usize::from(cursor.y) + 1 < screen::SCROLLBACK_LINES
+        {
+            move_on(screen, usize::from(cursor.x), usize::from(cursor.y + 1));
+        }
+    });
 }
 
 pub(super) fn sync_hardware_cursor(screen: &screen::VirtualScreen) {

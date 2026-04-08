@@ -1,5 +1,6 @@
 use core::cell::UnsafeCell;
 use core::fmt::Write;
+use core::ops::{BitAnd, BitOr};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::vga::text_mod::out::*;
@@ -12,16 +13,55 @@ pub const VGA_HEIGHT: usize = 25;
 const VIRTUAL_SCREENS_COUNT: usize = 6;
 pub(super) const SCROLLBACK_LINES: usize = 200;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CursorMovement {
+    None = 0x00,
+    Horizontal = 0x01,
+    Vertical = 0x02,
+    All = 0x03,
+}
+
+impl BitAnd for CursorMovement {
+    type Output = bool;
+    fn bitand(self, rhs: Self) -> bool {
+        match (self, rhs) {
+            (CursorMovement::None, CursorMovement::None)
+            | (CursorMovement::Horizontal, CursorMovement::Horizontal)
+            | (CursorMovement::Vertical, CursorMovement::Vertical)
+            | (CursorMovement::All, CursorMovement::All) => true,
+            _ => false,
+        }
+    }
+}
+
+impl BitOr for CursorMovement {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (CursorMovement::None, other) | (other, CursorMovement::None) => other,
+            (CursorMovement::Horizontal, CursorMovement::Vertical)
+            | (CursorMovement::Vertical, CursorMovement::Horizontal) => {
+                CursorMovement::All
+            }
+            (CursorMovement::Horizontal, CursorMovement::Horizontal)
+            | (CursorMovement::Vertical, CursorMovement::Vertical)
+            | (CursorMovement::All, _)
+            | (_, CursorMovement::All) => self,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct VirtualScreen {
     pub(super) buffer: [u16; VGA_WIDTH * SCROLLBACK_LINES],
-    pub(super) cursor: ScreenCursor,
+    pub(super) cursor: cursor::ScreenCursor,
     pub(super) cursor_visible: bool,
     pub(super) used_lines: usize,
     pub(super) viewport: usize,
     pub(super) accepts_input: bool,
     pub(super) color: ColorCode,
     active: bool,
+    pub(super) cursor_movement: CursorMovement,
 }
 
 impl VirtualScreen {
@@ -47,13 +87,14 @@ impl VirtualScreens {
         Self(UnsafeCell::new(
             [VirtualScreen {
                 buffer: [0; VGA_WIDTH * SCROLLBACK_LINES],
-                cursor: ScreenCursor { x: 0, y: 0 },
+                cursor: cursor::ScreenCursor { x: 0, y: 0 },
                 cursor_visible: true,
                 used_lines: 1,
                 viewport: 0,
                 accepts_input: false,
                 color: ColorCode::new(Color::White, Color::Black),
                 active: false,
+                cursor_movement: CursorMovement::All,
             }; VIRTUAL_SCREENS_COUNT],
         ))
     }
@@ -225,6 +266,9 @@ pub(super) fn is_screen_active(screen: &VirtualScreen) -> bool {
 }
 
 pub(super) fn set_active(screen_index: usize) {
+    with_active_screen_mut(|screen| {
+        screen.active = false;
+    });
     with_screen_mut(screen_index, |screen| {
         screen.active = true;
         render_screen(screen);

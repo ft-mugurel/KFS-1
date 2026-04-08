@@ -5,14 +5,14 @@ pub use printk::{log_level, set_log_level, KernelLogLevel};
 #[macro_export]
 macro_rules! printk {
 	($($arg:tt)*) => {
-		$crate::printk::printk::printk_level_to_active($crate::printk::printk::KernelLogLevel::Info, core::format_args!($($arg)*))
+		$crate::printk::printk::printk_level_to_default($crate::printk::printk::KernelLogLevel::Info, core::format_args!($($arg)*))
 	};
 }
 
 #[macro_export]
 macro_rules! printk_level {
 	($level:expr, $($arg:tt)*) => {
-		$crate::printk::printk::printk_level_to_active($level, core::format_args!($($arg)*))
+		$crate::printk::printk::printk_level_to_default($level, core::format_args!($($arg)*))
 	};
 }
 

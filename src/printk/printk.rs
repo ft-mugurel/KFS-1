@@ -1,7 +1,8 @@
 use core::fmt;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::Ordering;
 
 use crate::vga::text_mod::out;
+use crate::{DEFAULT_LOG_SCREEN, LOG_LEVEL};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
@@ -20,8 +21,6 @@ pub enum KernelLogLevel {
 
 #[allow(non_camel_case_types)]
 pub type KERNEL_LOG_LEVEL = KernelLogLevel;
-
-static LOG_LEVEL: AtomicU8 = AtomicU8::new(KernelLogLevel::Info as u8);
 
 const fn normalize_level(level: KernelLogLevel) -> u8 {
     match level {
@@ -90,7 +89,11 @@ fn is_enabled(level: KernelLogLevel) -> bool {
     wanted <= current
 }
 
-pub fn printk_level_to_screen(screen_index: usize, level: KernelLogLevel, args: fmt::Arguments<'_>) {
+pub fn printk_level_to_screen(
+    screen_index: usize,
+    level: KernelLogLevel,
+    args: fmt::Arguments<'_>,
+) {
     if !is_enabled(level) {
         return;
     }
@@ -100,20 +103,26 @@ pub fn printk_level_to_screen(screen_index: usize, level: KernelLogLevel, args: 
     out::write_fmt_on(screen_index, args);
 }
 
-pub fn printk_level_to_active(level: KernelLogLevel, args: fmt::Arguments<'_>) {
+pub fn printk_level_to_default(level: KernelLogLevel, args: fmt::Arguments<'_>) {
     if !is_enabled(level) {
         return;
     }
 
-    out::change_color(color_for_level(level));
-    out::write_fmt(format_args!("[{}] ", level_tag(level)));
-    out::write_fmt(args);
+    out::change_color_on(
+        DEFAULT_LOG_SCREEN.load(Ordering::Relaxed),
+        color_for_level(level),
+    );
+    out::write_fmt_on(
+        DEFAULT_LOG_SCREEN.load(Ordering::Relaxed),
+        format_args!("[{}] ", level_tag(level)),
+    );
+    out::write_fmt_on(DEFAULT_LOG_SCREEN.load(Ordering::Relaxed), args);
 }
 
 pub fn printk_to_screen(screen_index: usize, args: fmt::Arguments<'_>) {
     printk_level_to_screen(screen_index, KernelLogLevel::Info, args);
 }
 
-pub fn printk_to_active(args: fmt::Arguments<'_>) {
-    printk_level_to_active(KernelLogLevel::Info, args);
+pub fn printk_to_default(args: fmt::Arguments<'_>) {
+    printk_level_to_default(KernelLogLevel::Info, args);
 }

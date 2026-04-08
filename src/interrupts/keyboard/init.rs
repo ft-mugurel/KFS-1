@@ -1,14 +1,15 @@
 use crate::interrupts::idt::register_interrupt_handler;
-use crate::interrupts::keyboard::character_map::*;
 use crate::interrupts::keyboard::keycode::{decode_set1_scancode, KeyCode, KeyEvent, Modifiers};
+use crate::interrupts::utils::request_shutdown;
+use crate::shell::handle_shell_key_event;
 use crate::vga::text_mod::cursor::{
     disable_cursor, enable_cursor, set_big_cursor, set_cursor_shape, set_small_cursor,
 };
 use crate::vga::text_mod::out::{
     active_screen_accepts_input, move_cursor_down, move_cursor_left, move_cursor_right,
-    move_cursor_up, print_char, scroll_view_down, scroll_view_up, switch_screen,
+    move_cursor_up, scroll_view_down, scroll_view_up, switch_screen,
 };
-use crate::x86::io::{outb, outw};
+use crate::x86::io::outb;
 
 static mut EXTENDED_SCANCODE: bool = false;
 static mut MODIFIERS: Modifiers = Modifiers::empty();
@@ -23,6 +24,12 @@ const KEYBOARD_IRQ_VECTOR: u8 = 33;
 fn handle_key_press(event: KeyEvent, modifiers: Modifiers) -> bool {
     if event.key == KeyCode::Delete && modifiers.ctrl() && modifiers.alt() {
         return true;
+    }
+
+    if active_screen_accepts_input() && !modifiers.has_text_blocking_modifier() {
+        if handle_shell_key_event(event, modifiers) {
+            return false;
+        }
     }
 
     match event.key {
@@ -53,30 +60,10 @@ fn handle_key_press(event: KeyEvent, modifiers: Modifiers) -> bool {
         KeyCode::F9 => set_cursor_shape(0, 15),
         KeyCode::F10 => disable_cursor(),
         KeyCode::F11 => enable_cursor(),
-        _ => {
-            if active_screen_accepts_input() && !modifiers.has_text_blocking_modifier() {
-                if let Some(ch) = keycode_to_char(event.key, modifiers) {
-                    print_char(ch);
-                }
-            }
-        }
+        _ => {}
     }
 
     false
-}
-
-fn shutdown_system() -> ! {
-    unsafe {
-        outw(0x604, 0x2000); // QEMU
-        outw(0xB004, 0x2000); // Bochs
-        outw(0x4004, 0x3400); // VirtualBox
-    }
-
-    loop {
-        unsafe {
-            core::arch::asm!("hlt");
-        }
-    }
 }
 
 #[no_mangle]
@@ -112,7 +99,7 @@ pub extern "C" fn keyboard_interrupt_handler() {
     }
 
     if should_shutdown {
-        shutdown_system();
+        unsafe { request_shutdown() };
     }
 }
 

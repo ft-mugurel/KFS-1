@@ -1,13 +1,9 @@
+use crate::printk;
+
 use super::cursor;
 use super::screen;
 use core::fmt;
 use core::fmt::Write;
-
-#[derive(Copy, Clone)]
-pub(super) struct ScreenCursor {
-    pub x: u16,
-    pub y: u16,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -54,6 +50,16 @@ pub fn screen_accepts_input(screen_index: usize) -> bool {
     screen::with_screen(screen_index, |screen| screen.accepts_input).expect("Invalid screen index")
 }
 
+pub fn active_cursor_position() -> (u16, u16) {
+    screen::with_active_screen(|screen| (screen.cursor.x, screen.cursor.y))
+}
+
+pub fn set_cursor_position_on(screen_index: usize, x: u16, y: u16) {
+    screen::with_screen_mut(screen_index, |screen| {
+        cursor::move_on(screen, x as usize, y as usize)
+    });
+}
+
 pub fn change_color(color: ColorCode) {
     screen::with_active_screen_mut(|screen| {
         screen.set_color(color);
@@ -71,7 +77,7 @@ pub fn clear() {
         for line in 0..screen::SCROLLBACK_LINES {
             screen::clear_buffer_line(screen, line);
         }
-        screen.cursor = ScreenCursor { x: 0, y: 0 };
+        screen.cursor = cursor::ScreenCursor { x: 0, y: 0 };
         screen.cursor_visible = true;
         screen.used_lines = 1;
         screen.viewport = 0;
@@ -160,4 +166,19 @@ pub fn init_virtual_screens() {
 
 pub fn switch_screen(screen_index: usize) {
     screen::set_active(screen_index);
+}
+
+pub fn is_screen_active(screen_index: usize) -> bool {
+    printk!(
+        "Checking if screen {} is active: active_screen_index = {}\n",
+        screen_index,
+        screen::active_screen_index()
+    );
+    screen::active_screen_index() == screen_index
+}
+
+pub fn set_cursor_movement_on(screen_index: usize, mode: screen::CursorMovement) {
+    screen::with_screen_mut(screen_index, |screen| {
+        screen.cursor_movement = mode;
+    });
 }
