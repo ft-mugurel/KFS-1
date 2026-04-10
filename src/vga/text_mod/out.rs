@@ -1,6 +1,7 @@
 use super::cursor;
 use super::screen;
 use core::fmt;
+use core::fmt::Display;
 use core::fmt::Write;
 
 struct ScreenFormatter<'a> {
@@ -35,6 +36,50 @@ pub enum Color {
     White = 15,
 }
 
+impl Color {
+    pub const fn from_u8(code: u8) -> Color {
+        match code {
+            0 => Color::Black,
+            1 => Color::Blue,
+            2 => Color::Green,
+            3 => Color::Cyan,
+            4 => Color::Red,
+            5 => Color::Magenta,
+            6 => Color::Brown,
+            7 => Color::LightGray,
+            8 => Color::DarkGray,
+            9 => Color::LightBlue,
+            10 => Color::LightGreen,
+            11 => Color::LightCyan,
+            12 => Color::LightRed,
+            13 => Color::Pink,
+            14 => Color::Yellow,
+            _ => Color::White,
+        }
+    }
+
+    pub fn u8_to_string(code: u8) -> &'static str {
+        match code {
+            0 => "Black",
+            1 => "Blue",
+            2 => "Green",
+            3 => "Cyan",
+            4 => "Red",
+            5 => "Magenta",
+            6 => "Brown",
+            7 => "LightGray",
+            8 => "DarkGray",
+            9 => "LightBlue",
+            10 => "LightGreen",
+            11 => "LightCyan",
+            12 => "LightRed",
+            13 => "Pink",
+            14 => "Yellow",
+            _ => "White",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct ColorCode(pub u8);
@@ -42,6 +87,29 @@ pub struct ColorCode(pub u8);
 impl ColorCode {
     pub const fn new(foreground: Color, background: Color) -> ColorCode {
         ColorCode((background as u8) << 4 | (foreground as u8))
+    }
+    pub fn foreground(&self) -> Color {
+        Color::from_u8(self.0 & 0x0F)
+    }
+    pub fn background(&self) -> Color {
+        Color::from_u8((self.0 >> 4) & 0x0F)
+    }
+    pub fn set_foreground(&mut self, foreground: Color) {
+        self.0 = (self.0 & 0xF0) | (foreground as u8 & 0x0F);
+    }
+    pub fn set_background(&mut self, background: Color) {
+        self.0 = (self.0 & 0x0F) | ((background as u8 & 0x0F) << 4);
+    }
+}
+
+impl Display for ColorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ColorCode(fg: {:?}, bg: {:?})",
+            Color::from_u8(self.0 & 0x0F),
+            Color::from_u8((self.0 >> 4) & 0x0F)
+        )
     }
 }
 
@@ -191,8 +259,8 @@ pub fn set_cursor_movement_on(screen_index: usize, mode: screen::CursorMovement)
 
 pub fn switch_to_previous_screen() {
     let current_index = screen::active_screen_index();
-    let previous_index = (current_index + screen::VIRTUAL_SCREENS_COUNT - 1)
-        % screen::VIRTUAL_SCREENS_COUNT;
+    let previous_index =
+        (current_index + screen::VIRTUAL_SCREENS_COUNT - 1) % screen::VIRTUAL_SCREENS_COUNT;
     switch_screen(previous_index);
 }
 

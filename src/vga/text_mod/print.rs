@@ -1,3 +1,5 @@
+use crate::vga::text_mod::out::Color;
+
 use super::screen;
 
 #[derive(Copy, Clone)]
@@ -64,10 +66,7 @@ fn backspace(screen: &mut screen::VirtualScreen) -> Option<(usize, usize)> {
 
     let line = usize::from(screen.cursor.y);
     let column = usize::from(screen.cursor.x);
-    screen.buffer[screen::cell_index(line, column)] = {
-        let color = screen.color;
-        (b' ' as u16) | ((color.0 as u16) << 8)
-    };
+    screen.put_char_at(line, column, b' ');
 
     Some((line, column))
 }
@@ -100,9 +99,7 @@ fn write_raw_byte(screen: &mut screen::VirtualScreen, byte: u8) -> WriteOutcome 
         byte => {
             let line = usize::from(screen.cursor.y);
             let column = usize::from(screen.cursor.x);
-            let color = screen.color;
-            let vga_char = (byte as u16) | ((color.0 as u16) << 8);
-            screen.buffer[screen::cell_index(line, column)] = vga_char;
+            screen.put_char_at(line, column, byte);
 
             let next_x = column + 1;
             if next_x >= screen::VGA_WIDTH {
@@ -121,10 +118,45 @@ fn write_raw_byte(screen: &mut screen::VirtualScreen, byte: u8) -> WriteOutcome 
 }
 
 pub(super) fn write_str_on(screen: &mut screen::VirtualScreen, text: &str) {
+    let mut escape_mode = false;
     for &byte in text.as_bytes() {
-        let top_line_before = screen::visible_top_line_of(screen);
-        let outcome = write_raw_byte(screen, byte);
-        finalize_write(screen, top_line_before, outcome);
+        if byte == 0x1B {
+            escape_mode = true;
+            screen.clear_esc_seq_color();
+            continue;
+        }
+
+        if !escape_mode {
+            let top_line_before = screen::visible_top_line_of(screen);
+            let outcome = write_raw_byte(screen, byte);
+            finalize_write(screen, top_line_before, outcome);
+        } else {
+            /*
+             * 0x10      -> is_background flag
+             * 0x00-0x0F -> colors
+             * ';'       -> separator for multiple color codes
+             * 'm'       -> end of escape sequence
+             *
+             * Empty sequences or unrecognized codes will reset the modifications
+             * Refer to vga::text_mod::out::Color for mapping
+             */
+            if byte <= 0x20 {
+                let is_background = byte & 0x10 != 0;
+                let color_code = byte & 0x0F;
+                if is_background {
+                    screen.set_esc_seq_color_background(Color::from_u8(color_code));
+                } else {
+                    screen.set_esc_seq_color_foreground(Color::from_u8(color_code));
+                }
+            } else if byte == b';' {
+                continue;
+            } else if byte == b'm' {
+                escape_mode = false;
+            } else {
+                screen.clear_esc_seq_color();
+                escape_mode = false;
+            }
+        }
     }
 }
 

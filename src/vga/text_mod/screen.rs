@@ -61,6 +61,7 @@ pub struct VirtualScreen {
     pub(super) viewport: usize,
     pub(super) accepts_input: bool,
     pub(super) color: ColorCode,
+    pub(super) esc_seq_color: Option<ColorCode>,
     active: bool,
     pub(super) cursor_movement: CursorMovement,
 }
@@ -68,6 +69,40 @@ pub struct VirtualScreen {
 impl VirtualScreen {
     pub(super) fn set_color(&mut self, color: ColorCode) {
         self.color = color.clone();
+    }
+
+    pub(super) fn set_esc_seq_color(&mut self, color: ColorCode) {
+        self.esc_seq_color = Some(color);
+    }
+
+    pub(super) fn set_esc_seq_color_background(&mut self, color: Color) {
+        let mut color_code = self.esc_seq_color.unwrap_or(self.color.clone());
+        color_code.set_background(color);
+        self.set_esc_seq_color(color_code);
+    }
+
+    pub(super) fn set_esc_seq_color_foreground(&mut self, color: Color) {
+        let mut color_code = self.esc_seq_color.unwrap_or(self.color.clone());
+        color_code.set_foreground(color);
+        self.set_esc_seq_color(color_code);
+    }
+
+    pub(super) fn clear_esc_seq_color(&mut self) {
+        self.esc_seq_color = None;
+    }
+
+    pub(super) fn put_char_at(&mut self, line: usize, column: usize, byte: u8) {
+        if line >= SCROLLBACK_LINES || column >= VGA_WIDTH {
+            return;
+        }
+
+        let color = if let Some(esc_color) = self.esc_seq_color {
+            esc_color
+        } else {
+            self.color
+        };
+        let vga_char = (byte as u16) | ((color.0 as u16) << 8);
+        self.buffer[cell_index(line, column)] = vga_char;
     }
 
     fn blank_cell(&self) -> u16 {
@@ -89,6 +124,7 @@ impl VirtualScreenCell {
                 viewport: 0,
                 accepts_input: false,
                 color: ColorCode::new(Color::LightGray, Color::Black),
+                esc_seq_color: None,
                 active: false,
                 cursor_movement: CursorMovement::All,
             }; VIRTUAL_SCREENS_COUNT],
