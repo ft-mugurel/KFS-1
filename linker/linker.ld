@@ -44,4 +44,6 @@ SECTIONS {
 		*(.bss)
 		*(.bss.*)
 	} : data
+
+	__kernel_end = .;
 }

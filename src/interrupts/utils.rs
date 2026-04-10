@@ -1,5 +1,7 @@
-use crate::{vga::text_mod::out::print, x86::io::outw};
+use crate::{printk, x86::io::outw};
 use core::arch::asm;
+
+use crate::startup_config::power;
 
 #[allow(dead_code)]
 fn are_interrupts_enabled() -> bool {
@@ -22,26 +24,44 @@ pub(crate) fn enable_interrupts() {
     }
 }
 
-pub(crate) unsafe fn request_shutdown() -> ! {
-    outw(0x604, 0x2000); // QEMU
-    outw(0xB004, 0x2000); // Bochs
-    outw(0x4004, 0x3400); // VirtualBox
+pub(crate) fn request_shutdown() -> ! {
+    outw(power::QEMU_SHUTDOWN_PORT, power::QEMU_SHUTDOWN_VALUE); // QEMU
+    outw(power::BOCHS_SHUTDOWN_PORT, power::BOCHS_SHUTDOWN_VALUE); // Bochs
+    outw(power::VIRTUALBOX_SHUTDOWN_PORT, power::VIRTUALBOX_SHUTDOWN_VALUE); // VirtualBox
 
     loop {
-        core::arch::asm!("hlt");
+        unsafe { asm!("hlt") };
     }
 }
 
-pub(crate) unsafe fn request_reboot() {
-    print("Trying to reboot...\n");
-    print("Try method 1: Keyboard Controller\n");
-    asm!("outb %al, %dx", in("dx") 0x64u16, in("al") 0xFEu8, options(att_syntax));
+pub(crate) fn request_reboot() {
+    printk!("Try method 1: Keyboard Controller\n");
+    unsafe {
+        asm!(
+            "outb %al, %dx",
+            in("dx") power::KEYBOARD_CONTROLLER_COMMAND_PORT,
+            in("al") power::KEYBOARD_CONTROLLER_REBOOT,
+            options(att_syntax)
+        )
+    };
 
-    // Method 2: PCI Reset
-    print("Try method 2: PCI Reset\n");
-    asm!("outb %al, %dx", in("dx") 0xCF9, in("al") 0x06u8, options(att_syntax));
+    printk!("Try method 2: PCI Reset\n");
+    unsafe {
+        asm!(
+            "outb %al, %dx",
+            in("dx") power::PCI_RESET_PORT,
+            in("al") power::PCI_RESET_VALUE,
+            options(att_syntax)
+        )
+    };
 
-    // Method 3: QEMU specific shutdown (if configured)
-    print("Try method 3: QEMU specific reset\n");
-    asm!("outw %ax, %dx", in("dx") 0x604, in("ax") 0x2000, options(att_syntax));
+    printk!("Try method 3: QEMU specific reset\n");
+    unsafe {
+        asm!(
+            "outw %ax, %dx",
+            in("dx") power::QEMU_SHUTDOWN_PORT,
+            in("ax") power::QEMU_SHUTDOWN_VALUE,
+            options(att_syntax)
+        )
+    };
 }

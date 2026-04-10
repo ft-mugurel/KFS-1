@@ -6,15 +6,16 @@ use crate::interrupts::keyboard::keycode::{KeyCode, KeyEvent, Modifiers};
 use crate::interrupts::utils::{request_reboot, request_shutdown};
 use crate::printk;
 use crate::printk::{set_log_level, KernelLogLevel};
+use crate::startup_config;
 use crate::vga::text_mod::out::{
-    self, active_screen_accepts_input, change_color, clear, newline_on, print, print_char_on,
-    print_on, set_cursor_movement_on, switch_screen, Color, ColorCode,
+    self, active_screen_accepts_input, change_color, clear, newline_on, print_char_on, print_on,
+    set_cursor_movement_on, switch_screen, Color, ColorCode,
 };
 use crate::vga::text_mod::screen;
-use crate::SHELL_SCREEN_INDEX;
 
-const PROMPT: &str = "debug> ";
-const MAX_INPUT_LEN: usize = 128;
+const PROMPT: &str = "mysh > ";
+const MAX_INPUT_LEN: usize = startup_config::shell::MAX_INPUT_LEN;
+const SCREEN_INDEX: usize = startup_config::shell::SCREEN_INDEX;
 
 struct ShellState {
     input: [u8; MAX_INPUT_LEN],
@@ -104,6 +105,16 @@ fn with_shell_state_mut<R>(f: impl FnOnce(&mut ShellState) -> R) -> R {
     f(state)
 }
 
+#[inline]
+fn print(s: &str) {
+    print_on(SCREEN_INDEX, s);
+}
+
+#[inline]
+fn print_char(c: char) {
+    print_char_on(SCREEN_INDEX, c);
+}
+
 pub fn init_shell() {
     with_shell_state_mut(|state| {
         if state.initialized {
@@ -111,32 +122,52 @@ pub fn init_shell() {
         }
 
         state.initialized = true;
-        print_on(SHELL_SCREEN_INDEX, PROMPT);
+        print("This is the default screen for the shell\n");
+        print("Use F1-F6 / Shift+<Left/Right Arrow> to switch screens.\n");
+        print(PROMPT);
         state.rendered_len = PROMPT.len();
-        set_cursor_movement_on(SHELL_SCREEN_INDEX, screen::CursorMovement::Horizontal);
+        set_cursor_movement_on(SCREEN_INDEX, screen::CursorMovement::Horizontal);
     });
 }
 
 pub fn handle_shell_key_event(event: KeyEvent, modifiers: Modifiers) -> bool {
-    if !out::is_screen_active(SHELL_SCREEN_INDEX) || !active_screen_accepts_input() {
+    if !out::is_screen_active(SCREEN_INDEX) || !active_screen_accepts_input() {
         return false;
     }
 
     match event.key {
+        KeyCode::Home => {
+            with_shell_state_mut(|state| {
+                state.idx = 0;
+            });
+            redraw_input_line();
+            true
+        }
+        KeyCode::End => {
+            with_shell_state_mut(|state| {
+                state.idx = state.len;
+            });
+            redraw_input_line();
+            true
+        }
         KeyCode::ArrowLeft => {
-            if with_shell_state_mut(|state| state.idx_left()) {
+            if modifiers.shift() {
+                out::switch_to_previous_screen();
+            } else if with_shell_state_mut(|state| state.idx_left()) {
                 redraw_input_line();
             }
             true
         }
         KeyCode::ArrowRight => {
-            if with_shell_state_mut(|state| state.idx_right()) {
+            if modifiers.shift() {
+                out::switch_to_next_screen();
+            } else if with_shell_state_mut(|state| state.idx_right()) {
                 redraw_input_line();
             }
             true
         }
         KeyCode::Enter => {
-            newline_on(SHELL_SCREEN_INDEX);
+            newline_on(SCREEN_INDEX);
             run_command_line();
             true
         }
@@ -157,11 +188,8 @@ pub fn handle_shell_key_event(event: KeyEvent, modifiers: Modifiers) -> bool {
         KeyCode::Tab => {
             with_shell_state_mut(|state| {
                 if state.idx == 0 || state.input[state.idx - 1] == b' ' {
-                    newline_on(SHELL_SCREEN_INDEX);
-                    print_on(
-                        SHELL_SCREEN_INDEX,
-                        "help clear echo shutdown screen loglevel color\n",
-                    );
+                    newline_on(SCREEN_INDEX);
+                    print("help clear echo shutdown screen loglevel color\n");
                     state.clear_input();
                     redraw_input_line();
                     return;
@@ -187,9 +215,13 @@ pub fn handle_shell_key_event(event: KeyEvent, modifiers: Modifiers) -> bool {
                     return true;
                 }
             } else {
-				printk!("key event with modifiers: {:?} {:?}\n", event.key, modifiers);
+                printk!(
+                    "key event with modifiers: {:?} {:?}\n",
+                    event.key,
+                    modifiers
+                );
                 if event.key == KeyCode::C && modifiers.ctrl() {
-                    newline_on(SHELL_SCREEN_INDEX);
+                    newline_on(SCREEN_INDEX);
                     with_shell_state_mut(|state| {
                         state.clear_input();
                     });
@@ -217,23 +249,23 @@ fn redraw_input_line() {
         let old_rendered_len = state.rendered_len;
         let new_rendered_len = PROMPT.len() + state.len;
 
-        print_char_on(SHELL_SCREEN_INDEX, '\r');
-        print_on(SHELL_SCREEN_INDEX, PROMPT);
+        print_char('\r');
+        print(PROMPT);
 
         if let Ok(input_str) = str::from_utf8(&state.input[..state.len]) {
-            print_on(SHELL_SCREEN_INDEX, input_str);
+            print(input_str);
         }
 
         if old_rendered_len > new_rendered_len {
             for _ in 0..(old_rendered_len - new_rendered_len) {
-                print_char_on(SHELL_SCREEN_INDEX, ' ');
+                print_char(' ');
             }
         }
 
         let cursor_offset = PROMPT.len() + state.idx;
         let new_cursor_x = (cursor_offset % screen::VGA_WIDTH) as u16;
         let new_cursor_y = cursor_y + (cursor_offset / screen::VGA_WIDTH) as u16;
-        out::set_cursor_position_on(SHELL_SCREEN_INDEX, new_cursor_x, new_cursor_y);
+        out::set_cursor_position_on(SCREEN_INDEX, new_cursor_x, new_cursor_y);
         state.rendered_len = new_rendered_len;
         let _ = cursor_x;
     });
@@ -252,7 +284,7 @@ fn run_command_line() {
     let line = line.trim();
 
     if line.is_empty() {
-        print_on(SHELL_SCREEN_INDEX, PROMPT);
+        print(PROMPT);
         with_shell_state_mut(|state| {
             state.idx = 0;
             state.rendered_len = PROMPT.len();
@@ -262,8 +294,8 @@ fn run_command_line() {
 
     run_command(line);
 
-    if out::is_screen_active(SHELL_SCREEN_INDEX) {
-        print_on(SHELL_SCREEN_INDEX, PROMPT);
+    if out::is_screen_active(SCREEN_INDEX) {
+        print(PROMPT);
         with_shell_state_mut(|state| {
             state.idx = 0;
             state.rendered_len = PROMPT.len();
@@ -279,19 +311,19 @@ fn run_command(line: &str) {
 
     match command {
         "help" => {
-            print("Commands: help clear echo shutdown screen loglevel color\n");
+            print("Commands: help clear echo shutdown reboot screen loglevel color\n");
             print("screen <1-6>\n");
             print("loglevel <emerg|alert|crit|err|warn|notice|info|debug>\n");
             print("color <white|gray|red|green|blue|yellow|cyan|magenta>\n");
         }
-        "clear" => clear(),
+        "clear" => clear(SCREEN_INDEX),
         "echo" => {
             let rest = line[command.len()..].trim_start();
             print(rest);
             print("\n");
         }
-        "reboot" => unsafe { request_reboot() },
-        "shutdown" => unsafe { request_shutdown() },
+        "reboot" => request_reboot(),
+        "shutdown" => request_shutdown(),
         "screen" => {
             let Some(arg) = parts.next() else {
                 print("usage: screen <1-6>\n");

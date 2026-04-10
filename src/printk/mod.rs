@@ -33,7 +33,7 @@ macro_rules! printk_on {
 #[macro_export]
 macro_rules! pr_debug {
 	($($arg:tt)*) => {
-		$crate::printk_level!($crate::printk::printk::KernelLogLevel::Debug, $($arg)*)
+		$crate::printk::printk::printk_to_debug(core::format_args!($($arg)*))
 	};
 }
 

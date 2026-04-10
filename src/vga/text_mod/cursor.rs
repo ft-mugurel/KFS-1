@@ -41,46 +41,38 @@ pub fn set_cursor_shape(start: u8, end: u8) {
 }
 
 pub fn set_cursor(x: u16, y: u16) {
-    let max_x = 79u16;
-    let max_y = 24u16;
+    let max_x = (screen::VGA_WIDTH - 1) as u16;
+    let max_y = (screen::VGA_HEIGHT - 1) as u16;
     let x = x.min(max_x);
     let y = y.min(max_y);
-    let position = (y * 80 + x) as u16;
-    unsafe {
-        outb(VGA_CMD_PORT, 0x0E);
-        outb(VGA_DATA_PORT, (position >> 8) as u8);
-        outb(VGA_CMD_PORT, 0x0F);
-        outb(VGA_DATA_PORT, (position & 0xFF) as u8);
-    }
+    let position = (y * screen::VGA_WIDTH as u16 + x) as u16;
+    outb(VGA_CMD_PORT, 0x0E);
+    outb(VGA_DATA_PORT, (position >> 8) as u8);
+    outb(VGA_CMD_PORT, 0x0F);
+    outb(VGA_DATA_PORT, (position & 0xFF) as u8);
 }
 
 #[allow(dead_code)]
 pub fn disable_cursor() {
-    unsafe {
-        outb(VGA_CMD_PORT, 0x0A);
-        let cursor_start = inb(VGA_DATA_PORT);
-        outb(VGA_DATA_PORT, cursor_start | 0x20);
-    }
+    outb(VGA_CMD_PORT, 0x0A);
+    let cursor_start = inb(VGA_DATA_PORT);
+    outb(VGA_DATA_PORT, cursor_start | 0x20);
 }
 
 #[allow(dead_code)]
 pub fn enable_cursor() {
-    unsafe {
-        outb(VGA_CMD_PORT, 0x0A);
-        let cursor_start = inb(VGA_DATA_PORT);
-        outb(VGA_DATA_PORT, cursor_start & !0x20);
-    }
+    outb(VGA_CMD_PORT, 0x0A);
+    let cursor_start = inb(VGA_DATA_PORT);
+    outb(VGA_DATA_PORT, cursor_start & !0x20);
 }
 fn write_cursor_shape(start: u8, end: u8) {
-    unsafe {
-        outb(VGA_CMD_PORT, 0x0A);
-        let cursor_start = inb(VGA_DATA_PORT);
-        outb(VGA_DATA_PORT, (cursor_start & 0xE0) | (start & 0x1F));
+    outb(VGA_CMD_PORT, 0x0A);
+    let cursor_start = inb(VGA_DATA_PORT);
+    outb(VGA_DATA_PORT, (cursor_start & 0xE0) | (start & 0x1F));
 
-        outb(VGA_CMD_PORT, 0x0B);
-        let cursor_end = inb(VGA_DATA_PORT);
-        outb(VGA_DATA_PORT, (cursor_end & 0xE0) | (end & 0x1F));
-    }
+    outb(VGA_CMD_PORT, 0x0B);
+    let cursor_end = inb(VGA_DATA_PORT);
+    outb(VGA_DATA_PORT, (cursor_end & 0xE0) | (end & 0x1F));
 }
 
 pub(super) fn move_on(screen: &mut screen::VirtualScreen, x: usize, y: usize) {
@@ -146,11 +138,11 @@ pub(super) fn sync_hardware_cursor(screen: &screen::VirtualScreen) {
     let cursor_y = usize::from(screen.cursor.y);
     let top_line = screen::visible_top_line_of(screen);
 
-    if cursor_y >= top_line && cursor_y < top_line + screen::VGA_HEIGHT {
+    if cursor_y >= top_line && cursor_y < top_line + screen::SCREEN_CONTENT_HEIGHT {
         enable_cursor();
         set_cursor(
             cursor_x.min(screen::VGA_WIDTH - 1) as u16,
-            (cursor_y - top_line) as u16,
+            (cursor_y - top_line + 1) as u16,
         );
     } else {
         disable_cursor();

@@ -1,9 +1,18 @@
-use crate::printk;
-
 use super::cursor;
 use super::screen;
 use core::fmt;
 use core::fmt::Write;
+
+struct ScreenFormatter<'a> {
+    screen: &'a mut screen::VirtualScreen,
+}
+
+impl fmt::Write for ScreenFormatter<'_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        super::print::write_str_on(self.screen, s);
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -37,21 +46,37 @@ impl ColorCode {
 }
 
 pub fn active_screen_accepts_input() -> bool {
-    screen::with_active_screen(|screen| screen.accepts_input)
+    if let Some(accepts_input) = screen::with_active_screen(|screen| screen.accepts_input) {
+        accepts_input
+    } else {
+        false
+    }
 }
 
 pub fn set_screen_accepts_input(screen_index: usize, accepts_input: bool) {
     screen::with_screen_mut(screen_index, |screen| {
         screen.accepts_input = accepts_input;
+        if screen.cursor_visible != screen.accepts_input {
+            screen.cursor_visible = screen.accepts_input;
+            screen::render_screen(screen);
+        }
     });
 }
 
 pub fn screen_accepts_input(screen_index: usize) -> bool {
-    screen::with_screen(screen_index, |screen| screen.accepts_input).expect("Invalid screen index")
+    if let Some(accepts_input) = screen::with_screen(screen_index, |screen| screen.accepts_input) {
+        accepts_input
+    } else {
+        false
+    }
 }
 
 pub fn active_cursor_position() -> (u16, u16) {
-    screen::with_active_screen(|screen| (screen.cursor.x, screen.cursor.y))
+    if let Some((x, y)) = screen::with_active_screen(|screen| (screen.cursor.x, screen.cursor.y)) {
+        (x, y)
+    } else {
+        (0, 1)
+    }
 }
 
 pub fn set_cursor_position_on(screen_index: usize, x: u16, y: u16) {
@@ -72,13 +97,12 @@ pub fn change_color_on(screen_index: usize, color: ColorCode) {
     });
 }
 
-pub fn clear() {
-    screen::with_active_screen_mut(|screen| {
+pub fn clear(screen_index: usize) {
+    screen::with_screen_mut(screen_index, |screen| {
         for line in 0..screen::SCROLLBACK_LINES {
             screen::clear_buffer_line(screen, line);
         }
         screen.cursor = cursor::ScreenCursor { x: 0, y: 0 };
-        screen.cursor_visible = true;
         screen.used_lines = 1;
         screen.viewport = 0;
         screen::render_screen(screen);
@@ -91,18 +115,11 @@ pub fn print_on(screen_index: usize, str: &str) {
     });
 }
 
-pub fn print(str: &str) {
-    print_on(screen::active_screen_index(), str);
-}
-
 pub fn write_fmt_on(screen_index: usize, args: fmt::Arguments<'_>) {
     screen::with_screen_mut(screen_index, |screen| {
-        let _ = screen.write_fmt(args);
+        let mut formatter = ScreenFormatter { screen };
+        let _ = formatter.write_fmt(args);
     });
-}
-
-pub fn write_fmt(args: fmt::Arguments<'_>) {
-    write_fmt_on(screen::active_screen_index(), args);
 }
 
 pub fn print_char_on(screen_index: usize, c: char) {
@@ -111,18 +128,10 @@ pub fn print_char_on(screen_index: usize, c: char) {
     });
 }
 
-pub fn print_char(c: char) {
-    print_char_on(screen::active_screen_index(), c);
-}
-
 pub fn newline_on(screen_index: usize) {
     screen::with_screen_mut(screen_index, |screen| {
         super::print::newline_on(screen);
     });
-}
-
-pub fn newline() {
-    newline_on(screen::active_screen_index());
 }
 
 pub fn move_cursor_left() {
@@ -143,7 +152,9 @@ pub fn move_cursor_down() {
 
 pub fn scroll_view_up() {
     screen::with_active_screen_mut(|screen| {
-        let max_scroll = screen.used_lines.saturating_sub(screen::VGA_HEIGHT);
+        let max_scroll = screen
+            .used_lines
+            .saturating_sub(screen::SCREEN_CONTENT_HEIGHT);
         if screen.viewport < max_scroll {
             screen.viewport += 1;
         }
@@ -169,11 +180,6 @@ pub fn switch_screen(screen_index: usize) {
 }
 
 pub fn is_screen_active(screen_index: usize) -> bool {
-    printk!(
-        "Checking if screen {} is active: active_screen_index = {}\n",
-        screen_index,
-        screen::active_screen_index()
-    );
     screen::active_screen_index() == screen_index
 }
 
@@ -181,4 +187,17 @@ pub fn set_cursor_movement_on(screen_index: usize, mode: screen::CursorMovement)
     screen::with_screen_mut(screen_index, |screen| {
         screen.cursor_movement = mode;
     });
+}
+
+pub fn switch_to_previous_screen() {
+    let current_index = screen::active_screen_index();
+    let previous_index = (current_index + screen::VIRTUAL_SCREENS_COUNT - 1)
+        % screen::VIRTUAL_SCREENS_COUNT;
+    switch_screen(previous_index);
+}
+
+pub fn switch_to_next_screen() {
+    let current_index = screen::active_screen_index();
+    let next_index = (current_index + 1) % screen::VIRTUAL_SCREENS_COUNT;
+    switch_screen(next_index);
 }

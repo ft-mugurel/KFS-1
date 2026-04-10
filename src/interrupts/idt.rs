@@ -1,5 +1,7 @@
 use core::arch::asm;
 
+use crate::startup_config;
+
 // This creates and IDT Struct and make it like __attribute__((packed)) in C
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
@@ -19,18 +21,18 @@ struct IdtPointer {
 }
 
 // Creates an IDT Struct array with 256 entries and set them to zero
-static mut IDT: [IdtEntry; 256] = [IdtEntry {
+static mut IDT: [IdtEntry; startup_config::idt::ENTRIES] = [IdtEntry {
     offset_low: 0,
     selector: 0,
     zero: 0,
     flags: 0,
     offset_high: 0,
-}; 256];
+}; startup_config::idt::ENTRIES];
 
 pub fn init_idt() {
     // Initialize the IDTPointer first entry the size second the address of the first IDT entry
     let idt_ptr = IdtPointer {
-        limit: (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16,
+        limit: (core::mem::size_of::<[IdtEntry; startup_config::idt::ENTRIES]>() - 1) as u16,
         base: &raw const IDT as *const _ as u32,
     };
 
@@ -40,13 +42,15 @@ pub fn init_idt() {
     }
 }
 
-pub(crate) unsafe fn register_interrupt_handler(index: u8, handler: unsafe extern "C" fn()) {
+pub(crate) fn register_interrupt_handler(index: u8, handler: unsafe extern "C" fn()) {
     let handler_addr = handler as u32;
-    IDT[index as usize] = IdtEntry {
-        offset_low: handler_addr as u16,
-        selector: 0x08, // Kernel code segment
-        zero: 0,
-        flags: 0x8E, // Present, DPL=0, 32-bit interrupt gate
-        offset_high: (handler_addr >> 16) as u16,
-    };
+    unsafe {
+        IDT[index as usize] = IdtEntry {
+            offset_low: handler_addr as u16,
+            selector: startup_config::idt::KERNEL_CODE_SELECTOR, // Kernel code segment
+            zero: 0,
+            flags: startup_config::idt::INTERRUPT_GATE_FLAGS,
+            offset_high: (handler_addr >> 16) as u16,
+        };
+    }
 }
