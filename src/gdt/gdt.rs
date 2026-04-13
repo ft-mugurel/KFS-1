@@ -16,7 +16,8 @@ pub struct GdtPointer {
     pub base: u32,
 }
 
-const GDT_LIMIT_BYTES: u32 = 10u32 << 20;
+const GDT_ENTRIES_COUNT: usize = 7;
+const GDT_LIMIT_BYTES: u32 = 0xfffff; // 4GiB
 const GDT_LIMIT: u32 = (GDT_LIMIT_BYTES >> 12) - 1;
 
 // Mirror Linux arch/x86/include/asm/desc_defs.h flags.
@@ -63,7 +64,7 @@ const fn make_entry(flags: u16, base: u32, limit: u32) -> GdtEntry {
 
 #[unsafe(link_section = ".gdt")]
 #[used]
-static GDT: [GdtEntry; 7] = [
+static GDT: [GdtEntry; GDT_ENTRIES_COUNT] = [
     GdtEntry {
         limit0: 0,
         base0: 0,
@@ -80,7 +81,7 @@ static GDT: [GdtEntry; 7] = [
 
 pub fn load_gdt() {
     let gdt_ptr = GdtPointer {
-        limit: (size_of::<[GdtEntry; 7]>() - 1) as u16,
+        limit: (size_of::<[GdtEntry; GDT_ENTRIES_COUNT]>() - 1) as u16,
         base: &raw const GDT as *const _ as usize as u32,
     };
 
@@ -92,13 +93,15 @@ pub fn load_gdt() {
         );
 
         asm!(
+            // Set up data segment registers to kernel data selector.
             "mov ax, 0x10",
-            "mov ds, ax",
-            "mov es, ax",
-            "mov fs, ax",
-            "mov gs, ax",
-            "mov ss, ax",
+            "mov ds, ax",     // Move the value of ax into the data segment register
+            "mov es, ax",     // Move the value of ax into the extra segment register
+            "mov fs, ax",     // Move the value of ax into the fs segment register
+            "mov gs, ax",     // Move the value of ax into the gs segment register
+            "mov ss, ax",     // Move the value of ax into the stack segment register
 
+            // Switch to kernel code selector with a far return.
             "push 0x08",
             "lea eax, [2f]",
             "push eax",
