@@ -47,6 +47,18 @@ struct BlockFooter {
     total_size: usize,
 }
 
+#[derive(Clone, Copy)]
+pub struct HeapStats {
+    pub ready: bool,
+    pub chunk_count: usize,
+    pub chunk_bytes: usize,
+    pub free_block_count: usize,
+    pub free_bytes: usize,
+    pub used_block_count: usize,
+    pub used_requested_bytes: usize,
+    pub used_usable_bytes: usize,
+}
+
 static mut HEAP_READY: bool = false;
 static mut HEAP_CHUNKS: *mut HeapChunk = ptr::null_mut();
 static mut HEAP_FREE_LIST: *mut BlockHeader = ptr::null_mut();
@@ -702,5 +714,77 @@ pub fn ksize(ptr: *const u8) -> Option<usize> {
         }
 
         Some((*block).requested_size)
+    }
+}
+
+pub fn debug_stats() -> HeapStats {
+    unsafe {
+        let ready = HEAP_READY;
+        if !ready {
+            return HeapStats {
+                ready,
+                chunk_count: 0,
+                chunk_bytes: 0,
+                free_block_count: 0,
+                free_bytes: 0,
+                used_block_count: 0,
+                used_requested_bytes: 0,
+                used_usable_bytes: 0,
+            };
+        }
+
+        let mut chunk_count = 0usize;
+        let mut chunk_bytes = 0usize;
+        let mut free_block_count = 0usize;
+        let mut free_bytes = 0usize;
+        let mut used_block_count = 0usize;
+        let mut used_requested_bytes = 0usize;
+        let mut used_usable_bytes = 0usize;
+
+        let mut chunk = HEAP_CHUNKS;
+        while !chunk.is_null() {
+            if (*chunk).magic == HEAP_MAGIC {
+                chunk_count = chunk_count.saturating_add(1);
+                chunk_bytes = chunk_bytes.saturating_add((*chunk).total_size);
+
+                let mut block = (chunk as *mut u8).add(chunk_header_size()) as *mut BlockHeader;
+                let chunk_end = (chunk as usize).saturating_add((*chunk).total_size);
+
+                while (block as usize) < chunk_end {
+                    if (*block).magic != BLOCK_MAGIC || (*block).total_size == 0 {
+                        break;
+                    }
+
+                    if (*block).free != 0 {
+                        free_block_count = free_block_count.saturating_add(1);
+                        free_bytes = free_bytes.saturating_add((*block).usable_size);
+                    } else {
+                        used_block_count = used_block_count.saturating_add(1);
+                        used_requested_bytes =
+                            used_requested_bytes.saturating_add((*block).requested_size);
+                        used_usable_bytes = used_usable_bytes.saturating_add((*block).usable_size);
+                    }
+
+                    let next = (block as usize).saturating_add((*block).total_size);
+                    if next <= block as usize {
+                        break;
+                    }
+                    block = next as *mut BlockHeader;
+                }
+            }
+
+            chunk = (*chunk).next;
+        }
+
+        HeapStats {
+            ready,
+            chunk_count,
+            chunk_bytes,
+            free_block_count,
+            free_bytes,
+            used_block_count,
+            used_requested_bytes,
+            used_usable_bytes,
+        }
     }
 }

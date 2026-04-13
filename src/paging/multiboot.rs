@@ -50,8 +50,25 @@ pub const MULTIBOOT_INFO_HAS_BASIC_MEMORY: u32 = 1 << 0;
 pub const MULTIBOOT_INFO_HAS_MMAP: u32 = 1 << 6;
 pub const MULTIBOOT_MEMORY_AVAILABLE: u32 = 1;
 
+static mut BOOT_MULTIBOOT_INFO_ADDR: u32 = 0;
+
 pub fn multiboot_info_from_addr(addr: u32) -> &'static MultibootInfo {
     unsafe { &*(addr as usize as *const MultibootInfo) }
+}
+
+pub fn set_boot_multiboot_info_addr(addr: u32) {
+    unsafe {
+        BOOT_MULTIBOOT_INFO_ADDR = addr;
+    }
+}
+
+pub fn boot_multiboot_info() -> Option<&'static MultibootInfo> {
+    let addr = unsafe { BOOT_MULTIBOOT_INFO_ADDR };
+    if addr == 0 {
+        None
+    } else {
+        Some(multiboot_info_from_addr(addr))
+    }
 }
 
 pub struct MemoryMapIter {

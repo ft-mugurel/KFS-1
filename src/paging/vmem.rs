@@ -4,10 +4,11 @@ use super::physical;
 use crate::{pr_debug, pr_warn};
 
 const VMALLOC_START: u32 = KERNEL_SPACE_START as u32 + 0x0020_0000;
-const VMALLOC_END: u32 = KERNEL_SPACE_START as u32 + 0x0040_0000;
+const VMALLOC_END: u32 = KERNEL_SPACE_START as u32 + 0x0100_0000;
+const VMALLOC_SIZE: usize = (VMALLOC_END - VMALLOC_START) as usize;
 const MAX_VIRTUAL_ALLOCS: usize = 128;
 const MAX_FREE_RANGES: usize = 128;
-const MAX_PAGES_PER_ALLOC: usize = 64;
+const MAX_PAGES_PER_ALLOC: usize = VMALLOC_SIZE / PAGE_SIZE;
 
 #[derive(Clone, Copy)]
 struct VirtualAllocRecord {
@@ -37,6 +38,17 @@ static mut VIRTUAL_ALLOCS: [VirtualAllocRecord; MAX_VIRTUAL_ALLOCS] =
 static mut FREE_RANGES: [FreeRange; MAX_FREE_RANGES] =
     [FreeRange { base: 0, size: 0 }; MAX_FREE_RANGES];
 static mut FREE_RANGE_COUNT: usize = 0;
+
+#[derive(Clone, Copy)]
+pub struct VmemStats {
+    pub range_start: u32,
+    pub range_end: u32,
+    pub total_bytes: u32,
+    pub free_bytes: u32,
+    pub free_ranges: usize,
+    pub alloc_count: usize,
+    pub alloc_bytes: usize,
+}
 
 fn page_count_for(size: usize) -> usize {
     (size + PAGE_SIZE - 1) / PAGE_SIZE
@@ -359,4 +371,53 @@ pub fn vsize(ptr: *const u8) -> Option<usize> {
     }
 
     None
+}
+
+pub fn debug_stats() -> VmemStats {
+    unsafe {
+        let mut free_bytes = 0u32;
+        for i in 0usize..FREE_RANGE_COUNT {
+            free_bytes = free_bytes.saturating_add(FREE_RANGES[i].size);
+        }
+
+        let mut alloc_count = 0usize;
+        let mut alloc_bytes = 0usize;
+        for i in 0usize..MAX_VIRTUAL_ALLOCS {
+            let rec = VIRTUAL_ALLOCS[i];
+            if rec.in_use {
+                alloc_count += 1;
+                alloc_bytes = alloc_bytes.saturating_add(rec.size);
+            }
+        }
+
+        VmemStats {
+            range_start: VMALLOC_START,
+            range_end: VMALLOC_END,
+            total_bytes: VMALLOC_END - VMALLOC_START,
+            free_bytes,
+            free_ranges: FREE_RANGE_COUNT,
+            alloc_count,
+            alloc_bytes,
+        }
+    }
+}
+
+pub fn debug_for_each_alloc(mut f: impl FnMut(u32, usize, usize)) {
+    unsafe {
+        for i in 0usize..MAX_VIRTUAL_ALLOCS {
+            let rec = VIRTUAL_ALLOCS[i];
+            if rec.in_use {
+                f(rec.base, rec.size, rec.page_count);
+            }
+        }
+    }
+}
+
+pub fn debug_for_each_free_range(mut f: impl FnMut(u32, u32)) {
+    unsafe {
+        for i in 0usize..FREE_RANGE_COUNT {
+            let range = FREE_RANGES[i];
+            f(range.base, range.size);
+        }
+    }
 }

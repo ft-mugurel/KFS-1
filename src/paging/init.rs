@@ -3,7 +3,8 @@ use crate::{pr_debug, pr_err, pr_warn};
 use super::frame_allocator;
 use super::kernel_heap;
 use super::multiboot::{
-    multiboot_info_from_addr, MULTIBOOT_BOOTLOADER_MAGIC, MULTIBOOT_INFO_HAS_BASIC_MEMORY,
+    multiboot_info_from_addr, set_boot_multiboot_info_addr, MULTIBOOT_BOOTLOADER_MAGIC,
+    MULTIBOOT_INFO_HAS_BASIC_MEMORY,
 };
 use super::page_table;
 use super::physical;
@@ -30,11 +31,12 @@ fn test_pass(name: &str) {
 }
 
 fn test_fail(name: &str, reason: &str) {
-    pr_err!(
+    pr_debug!(
         "[paging-selftest:\x1b\x1f;\x00m{}\x1bm] \x1b\x04mFAIL: {}\x1bm\n",
         name,
         reason
     );
+    pr_err!("[paging-selftest] test {} failed: {}\n", name, reason);
 }
 
 fn test_identity_page_present() -> bool {
@@ -477,7 +479,7 @@ fn test_virtual_reuse_after_free() -> bool {
         }
     });
 
-    match (first, second) {
+    let result = match (first, second) {
         (Some(first_ptr), Some(second_ptr)) if first_ptr == second_ptr => {
             pr_debug!(
                 "[paging-selftest:\x1b\x1f;\x00m{}\x1bm] reused ptr={:#x}\n",
@@ -504,7 +506,19 @@ fn test_virtual_reuse_after_free() -> bool {
             test_fail(NAME, "initial allocation failed");
             false
         }
-    }
+    };
+
+    second.map(|ptr| {
+        if !vmem::vfree(ptr) {
+            pr_err!(
+                "[paging-selftest:\x1b\x1f;\x00m{}\x1bm] cleanup vfree failed ptr={:#x}\n",
+                NAME,
+                ptr as usize
+            );
+        }
+    });
+
+    result
 }
 
 fn run_bootstrap_self_tests() {
@@ -592,6 +606,7 @@ pub fn init_paging(multiboot_magic: u32, multiboot_info_addr: u32) {
     );
 
     let mb_info = multiboot_info_from_addr(multiboot_info_addr);
+    set_boot_multiboot_info_addr(multiboot_info_addr);
 
     if (mb_info.flags & MULTIBOOT_INFO_HAS_BASIC_MEMORY) != 0 {
         pr_debug!(
