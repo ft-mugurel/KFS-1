@@ -1,12 +1,25 @@
 use core::mem::size_of;
 use core::ptr;
 
-use super::vmem;
+use super::init::{KERNEL_SPACE_START, PAGE_SIZE};
+use super::page_table;
+use super::physical;
 use crate::{pr_debug, pr_warn};
 
 const HEAP_ALIGNMENT: usize = 16;
 const HEAP_MAGIC: u32 = 0x4B_48_45_50;
 const BLOCK_MAGIC: u32 = 0x4B_42_4C_4B;
+const HEAP_CHUNK_GRANULARITY: usize = PAGE_SIZE;
+const HEAP_DEFAULT_CHUNK_SIZE: usize = HEAP_CHUNK_GRANULARITY * 4;
+const HEAP_VM_START: u32 = KERNEL_SPACE_START as u32 + 0x0100_0000;
+const HEAP_VM_END: u32 = KERNEL_SPACE_START as u32 + 0x0200_0000;
+const HEAP_MAX_FREE_RANGES: usize = 128;
+
+#[derive(Clone, Copy)]
+struct HeapFreeRange {
+    base: u32,
+    size: u32,
+}
 
 #[repr(C, align(16))]
 struct HeapChunk {
@@ -37,6 +50,9 @@ struct BlockFooter {
 static mut HEAP_READY: bool = false;
 static mut HEAP_CHUNKS: *mut HeapChunk = ptr::null_mut();
 static mut HEAP_FREE_LIST: *mut BlockHeader = ptr::null_mut();
+static mut HEAP_FREE_RANGES: [HeapFreeRange; HEAP_MAX_FREE_RANGES] =
+    [HeapFreeRange { base: 0, size: 0 }; HEAP_MAX_FREE_RANGES];
+static mut HEAP_FREE_RANGE_COUNT: usize = 0;
 
 fn align_up(value: usize, align: usize) -> Option<usize> {
     if align == 0 || !align.is_power_of_two() {
@@ -65,6 +81,262 @@ fn block_alignment_overhead() -> usize {
 
 fn minimum_free_block_size() -> usize {
     block_alignment_overhead() + HEAP_ALIGNMENT
+}
+
+fn chunk_alloc_size(min_block_total_size: usize) -> Option<usize> {
+    let min_chunk_size = chunk_header_size().checked_add(min_block_total_size)?;
+    let requested = core::cmp::max(min_chunk_size, HEAP_DEFAULT_CHUNK_SIZE);
+    align_up(requested, HEAP_CHUNK_GRANULARITY)
+}
+
+fn pages_for(size: usize) -> Option<usize> {
+    size.checked_add(PAGE_SIZE - 1)
+        .map(|v| v / PAGE_SIZE)
+        .filter(|pages| *pages > 0)
+}
+
+fn pages_to_bytes(pages: usize) -> Option<u32> {
+    let bytes = pages.checked_mul(PAGE_SIZE)?;
+    if bytes > u32::MAX as usize {
+        None
+    } else {
+        Some(bytes as u32)
+    }
+}
+
+fn allocate_heap_virtual_span(span: u32) -> Option<u32> {
+    unsafe {
+        for i in 0usize..HEAP_FREE_RANGE_COUNT {
+            let range = HEAP_FREE_RANGES[i];
+            if range.size >= span {
+                let base = range.base;
+                let remaining = range.size - span;
+                if remaining == 0 {
+                    for j in i..(HEAP_FREE_RANGE_COUNT - 1) {
+                        HEAP_FREE_RANGES[j] = HEAP_FREE_RANGES[j + 1];
+                    }
+                    HEAP_FREE_RANGE_COUNT -= 1;
+                } else {
+                    HEAP_FREE_RANGES[i] = HeapFreeRange {
+                        base: range.base + span,
+                        size: remaining,
+                    };
+                }
+                return Some(base);
+            }
+        }
+    }
+
+    None
+}
+
+fn insert_heap_virtual_span(mut base: u32, mut size: u32) -> bool {
+    if size == 0 {
+        return true;
+    }
+
+    let end = match base.checked_add(size) {
+        Some(v) => v,
+        None => return false,
+    };
+
+    let mut i = 0usize;
+    unsafe {
+        while i < HEAP_FREE_RANGE_COUNT {
+            let range = HEAP_FREE_RANGES[i];
+            let range_end = match range.base.checked_add(range.size) {
+                Some(v) => v,
+                None => return false,
+            };
+
+            if end == range.base {
+                base = range.base;
+                size = size.saturating_add(range.size);
+                let mut j = i;
+                while j + 1 < HEAP_FREE_RANGE_COUNT {
+                    HEAP_FREE_RANGES[j] = HEAP_FREE_RANGES[j + 1];
+                    j += 1;
+                }
+                HEAP_FREE_RANGE_COUNT -= 1;
+                i = 0;
+                continue;
+            }
+
+            if range_end == base {
+                base = range.base;
+                size = size.saturating_add(range.size);
+                let mut j = i;
+                while j + 1 < HEAP_FREE_RANGE_COUNT {
+                    HEAP_FREE_RANGES[j] = HEAP_FREE_RANGES[j + 1];
+                    j += 1;
+                }
+                HEAP_FREE_RANGE_COUNT -= 1;
+                i = 0;
+                continue;
+            }
+
+            i += 1;
+        }
+
+        if HEAP_FREE_RANGE_COUNT >= HEAP_MAX_FREE_RANGES {
+            return false;
+        }
+
+        let mut insert_at = 0usize;
+        while insert_at < HEAP_FREE_RANGE_COUNT && HEAP_FREE_RANGES[insert_at].base < base {
+            insert_at += 1;
+        }
+
+        let mut j = HEAP_FREE_RANGE_COUNT;
+        while j > insert_at {
+            HEAP_FREE_RANGES[j] = HEAP_FREE_RANGES[j - 1];
+            j -= 1;
+        }
+
+        HEAP_FREE_RANGES[insert_at] = HeapFreeRange { base, size };
+        HEAP_FREE_RANGE_COUNT += 1;
+    }
+
+    true
+}
+
+unsafe fn rollback_heap_mapping(base: u32, mapped_pages: usize) {
+    for i in 0usize..mapped_pages {
+        let va = base + (i * PAGE_SIZE) as u32;
+        if let Some(entry) = page_table::get_page(va) {
+            let frame = entry & 0xFFFF_F000;
+            let _ = page_table::unmap_page(va);
+            let _ = physical::free_physical_page(frame);
+        }
+    }
+}
+
+unsafe fn map_heap_pages(size: usize) -> Option<*mut u8> {
+    let page_count = pages_for(size)?;
+    let span = pages_to_bytes(page_count)?;
+    let base = allocate_heap_virtual_span(span)?;
+    let mut mapped_pages = 0usize;
+
+    for i in 0usize..page_count {
+        let frame = match physical::alloc_physical_page() {
+            Some(frame) => frame,
+            None => {
+                rollback_heap_mapping(base, mapped_pages);
+                let _ = insert_heap_virtual_span(base, span);
+                return None;
+            }
+        };
+
+        let va = base + (i * PAGE_SIZE) as u32;
+        if page_table::map_page(va, frame, page_table::PAGE_WRITABLE).is_err() {
+            let _ = physical::free_physical_page(frame);
+            rollback_heap_mapping(base, mapped_pages);
+            let _ = insert_heap_virtual_span(base, span);
+            return None;
+        }
+
+        mapped_pages += 1;
+    }
+
+    Some(base as *mut u8)
+}
+
+unsafe fn unmap_heap_pages(base: *mut u8, size: usize) -> bool {
+    let page_count = match pages_for(size) {
+        Some(v) => v,
+        None => return false,
+    };
+    let span = match pages_to_bytes(page_count) {
+        Some(v) => v,
+        None => return false,
+    };
+
+    let base_u32 = base as u32;
+    for i in 0usize..page_count {
+        let va = base_u32 + (i * PAGE_SIZE) as u32;
+        let entry = match page_table::get_page(va) {
+            Some(entry) => entry,
+            None => return false,
+        };
+
+        let frame = entry & 0xFFFF_F000;
+        if page_table::unmap_page(va).is_err() {
+            return false;
+        }
+        if !physical::free_physical_page(frame) {
+            return false;
+        }
+    }
+
+    insert_heap_virtual_span(base_u32, span)
+}
+
+unsafe fn provision_heap_chunk(min_block_total_size: usize) -> bool {
+    let chunk_total_size = match chunk_alloc_size(min_block_total_size) {
+        Some(size) => size,
+        None => {
+            pr_warn!(
+                "kernel heap chunk size overflow min_block_total_size={}\n",
+                min_block_total_size
+            );
+            return false;
+        }
+    };
+
+    let chunk = match map_heap_pages(chunk_total_size) {
+        Some(ptr) => ptr as *mut HeapChunk,
+        None => {
+            pr_warn!(
+                "kernel heap failed to provision chunk size={}\n",
+                chunk_total_size
+            );
+            return false;
+        }
+    };
+
+    (*chunk).magic = HEAP_MAGIC;
+    (*chunk).total_size = chunk_total_size;
+    (*chunk).prev = ptr::null_mut();
+    (*chunk).next = HEAP_CHUNKS;
+
+    if !HEAP_CHUNKS.is_null() {
+        (*HEAP_CHUNKS).prev = chunk;
+    }
+    HEAP_CHUNKS = chunk;
+
+    let first_block = (chunk as *mut u8).add(chunk_header_size()) as *mut BlockHeader;
+    let first_block_total_size = chunk_total_size - chunk_header_size();
+
+    if first_block_total_size < minimum_free_block_size() {
+        pr_warn!(
+            "kernel heap chunk too small chunk_size={} first_block_total={}\n",
+            chunk_total_size,
+            first_block_total_size
+        );
+        chunk_list_remove(chunk);
+        let _ = unmap_heap_pages(chunk as *mut u8, chunk_total_size);
+        return false;
+    }
+
+    (*first_block).magic = BLOCK_MAGIC;
+    (*first_block).total_size = first_block_total_size;
+    (*first_block).usable_size = first_block_total_size - block_alignment_overhead();
+    (*first_block).requested_size = 0;
+    (*first_block).chunk = chunk;
+    (*first_block).prev_free = ptr::null_mut();
+    (*first_block).next_free = ptr::null_mut();
+    (*first_block).free = 1;
+    write_footer(first_block);
+    free_list_push(first_block);
+
+    pr_debug!(
+        "kernel heap provisioned chunk base={:#x} size={} free_block_total={}\n",
+        chunk as usize,
+        chunk_total_size,
+        first_block_total_size
+    );
+
+    true
 }
 
 unsafe fn block_footer_ptr(block: *mut BlockHeader) -> *mut BlockFooter {
@@ -192,6 +464,12 @@ unsafe fn find_free_block(total_size: usize) -> Option<*mut BlockHeader> {
     let mut current = HEAP_FREE_LIST;
 
     while !current.is_null() {
+        pr_debug!(
+            "\x1b\x01mfind_free_block\x1bm: checking block={:#x} total={} free={}\n",
+            current as usize,
+            (*current).total_size,
+            (*current).free
+        );
         if (*current).free != 0 && (*current).total_size >= total_size {
             return Some(current);
         }
@@ -236,9 +514,9 @@ unsafe fn release_chunk_if_empty(block: *mut BlockHeader) -> bool {
 
     if block as usize == first_block as usize && (*block).total_size == full_free_span {
         chunk_list_remove(chunk);
-        if !vmem::vfree(chunk as *mut u8) {
+        if !unmap_heap_pages(chunk as *mut u8, (*chunk).total_size) {
             pr_warn!(
-                "kernel heap failed to return chunk to vmem base={:#x}\n",
+                "kernel heap failed to return chunk pages base={:#x}\n",
                 chunk as usize
             );
         }
@@ -253,6 +531,14 @@ pub fn init_kernel_heap() {
         HEAP_READY = true;
         HEAP_CHUNKS = ptr::null_mut();
         HEAP_FREE_LIST = ptr::null_mut();
+        for i in 0usize..HEAP_MAX_FREE_RANGES {
+            HEAP_FREE_RANGES[i] = HeapFreeRange { base: 0, size: 0 };
+        }
+        HEAP_FREE_RANGES[0] = HeapFreeRange {
+            base: HEAP_VM_START,
+            size: HEAP_VM_END - HEAP_VM_START,
+        };
+        HEAP_FREE_RANGE_COUNT = 1;
     }
 
     pr_debug!("kernel heap initialized\n");
@@ -278,12 +564,30 @@ pub fn kmalloc(size: usize) -> Option<*mut u8> {
     let total_size = align_up(block_alignment_overhead() + payload_size, HEAP_ALIGNMENT)?;
 
     unsafe {
-        let block = find_free_block(total_size);
+        let mut block = find_free_block(total_size);
         if block.is_none() {
-            return None;
+            if !provision_heap_chunk(total_size) {
+                pr_debug!(
+                    "\x1b\x04mkmalloc\x1bm: no free block found for size={} total_size={}\n",
+                    size,
+                    total_size
+                );
+                return None;
+            }
+            block = find_free_block(total_size);
         }
 
-        let block = block?;
+        let block = match block {
+            Some(block) => block,
+            None => {
+                pr_warn!(
+                    "kmalloc allocator inconsistency size={} total_size={}\n",
+                    size,
+                    total_size
+                );
+                return None;
+            }
+        };
         free_list_remove(block);
         split_block(block, total_size);
 
