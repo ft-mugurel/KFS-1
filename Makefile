@@ -71,11 +71,17 @@ all: run-iso
 
 SRCS = $(shell find src -name "*.rs")
 
+generate-kallsyms:
+	@nm -n build/kernel.bin | awk '$$2 ~ /[tTwW]/ { if ($$3 != "") print $$1 " " $$3 }' > build/kallsyms.map
+
 build: 	${SRCS}
 	@mkdir -p build
 	@${NASM} -f elf32 ${BOOT} -o build/boot.o
 	@${CARGO} build --no-default-features --release
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL BUILD DONE$(RESET)"
+	@${LD} -m elf_i386 -T ${LINKER} -o build/kernel.bin build/boot.o  ${KERNEL_OUT}
+	@$(MAKE) generate-kallsyms
+	@${CARGO} build --no-default-features --release
 	@${LD} -m elf_i386 -T ${LINKER} -o build/kernel.bin build/boot.o  ${KERNEL_OUT}
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL LINK DONE$(RESET)"
 
@@ -85,6 +91,9 @@ build_debug: ${SRCS}
 	@${NASM} -f elf32 ${BOOT} -o build/boot.o
 	@${CARGO} build
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL BUILD DONE$(RESET)"
+	@${LD} -m elf_i386 -T ${LINKER} -o build/kernel.bin build/boot.o  ${KERNEL_DEBUG_OUT}
+	@$(MAKE) generate-kallsyms
+	@${CARGO} build
 	@${LD} -m elf_i386 -T ${LINKER} -o build/kernel.bin build/boot.o  ${KERNEL_DEBUG_OUT}
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL LINK DONE$(RESET)"
 

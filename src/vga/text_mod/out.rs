@@ -141,6 +141,22 @@ pub fn move_cursor_down() {
     cursor::move_down();
 }
 
+pub fn scroll_view_to_top() {
+    screen::with_active_screen_mut(|screen| {
+        screen.viewport = screen
+            .used_lines
+            .saturating_sub(screen::VGA_HEIGHT);
+        screen::render_screen(screen);
+    });
+}
+
+pub fn scroll_view_to_bottom() {
+    screen::with_active_screen_mut(|screen| {
+        screen.viewport = 0;
+        screen::render_screen(screen);
+    });
+}
+
 pub fn scroll_view_up() {
     screen::with_active_screen_mut(|screen| {
         let max_scroll = screen.used_lines.saturating_sub(screen::VGA_HEIGHT);

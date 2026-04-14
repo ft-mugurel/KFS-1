@@ -1,19 +1,21 @@
 use core::cell::UnsafeCell;
+use core::fmt;
 use core::str;
 
 use crate::interrupts::keyboard::character_map::keycode_to_char;
 use crate::interrupts::keyboard::keycode::{KeyCode, KeyEvent, Modifiers};
 use crate::interrupts::utils::{request_reboot, request_shutdown};
-use crate::printk;
 use crate::printk::{set_log_level, KernelLogLevel};
-use crate::vga::text_mod::out::{
-    self, active_screen_accepts_input, change_color, clear, newline_on, print, print_char_on,
-    print_on, set_cursor_movement_on, switch_screen, Color, ColorCode,
-};
 use crate::vga::text_mod::screen;
 use crate::SHELL_SCREEN_INDEX;
 
-const PROMPT: &str = "debug> ";
+use crate::debug::stack::{self, DumpStackOptions};
+use crate::vga::text_mod::out::{
+    self, active_screen_accepts_input, change_color, clear, print_char_on, print_on,
+    set_cursor_movement_on, switch_screen, Color, ColorCode,
+};
+
+const PROMPT: &str = "mysh > ";
 const MAX_INPUT_LEN: usize = 128;
 
 struct ShellState {
@@ -104,6 +106,21 @@ fn with_shell_state_mut<R>(f: impl FnOnce(&mut ShellState) -> R) -> R {
     f(state)
 }
 
+#[inline]
+fn print(s: &str) {
+    print_on(SHELL_SCREEN_INDEX, s);
+}
+
+#[inline]
+fn print_char(c: char) {
+    print_char_on(SHELL_SCREEN_INDEX, c);
+}
+
+#[inline]
+fn print_fmt(args: fmt::Arguments<'_>) {
+    out::write_fmt_on(SHELL_SCREEN_INDEX, args);
+}
+
 pub fn init_shell() {
     with_shell_state_mut(|state| {
         if state.initialized {
@@ -111,7 +128,9 @@ pub fn init_shell() {
         }
 
         state.initialized = true;
-        print_on(SHELL_SCREEN_INDEX, PROMPT);
+        print("This is the default screen for the shell\n");
+        print("Use F1-F6 / Shift+<Left/Right Arrow> to switch screens.\n");
+        print(PROMPT);
         state.rendered_len = PROMPT.len();
         set_cursor_movement_on(SHELL_SCREEN_INDEX, screen::CursorMovement::Horizontal);
     });
@@ -136,7 +155,7 @@ pub fn handle_shell_key_event(event: KeyEvent, modifiers: Modifiers) -> bool {
             true
         }
         KeyCode::Enter => {
-            newline_on(SHELL_SCREEN_INDEX);
+            print_char('\n');
             run_command_line();
             true
         }
@@ -157,10 +176,8 @@ pub fn handle_shell_key_event(event: KeyEvent, modifiers: Modifiers) -> bool {
         KeyCode::Tab => {
             with_shell_state_mut(|state| {
                 if state.idx == 0 || state.input[state.idx - 1] == b' ' {
-                    newline_on(SHELL_SCREEN_INDEX);
-                    print_on(
-                        SHELL_SCREEN_INDEX,
-                        "help clear echo shutdown screen loglevel color\n",
+                    print(
+                        "\nhelp clear echo shutdown reboot screen loglevel color memstat memdebug memdump pte memtest stack\n",
                     );
                     state.clear_input();
                     redraw_input_line();
@@ -187,9 +204,8 @@ pub fn handle_shell_key_event(event: KeyEvent, modifiers: Modifiers) -> bool {
                     return true;
                 }
             } else {
-				printk!("key event with modifiers: {:?} {:?}\n", event.key, modifiers);
                 if event.key == KeyCode::C && modifiers.ctrl() {
-                    newline_on(SHELL_SCREEN_INDEX);
+                    print_char('\n');
                     with_shell_state_mut(|state| {
                         state.clear_input();
                     });
@@ -217,16 +233,16 @@ fn redraw_input_line() {
         let old_rendered_len = state.rendered_len;
         let new_rendered_len = PROMPT.len() + state.len;
 
-        print_char_on(SHELL_SCREEN_INDEX, '\r');
-        print_on(SHELL_SCREEN_INDEX, PROMPT);
+        print_char('\r');
+        print(PROMPT);
 
         if let Ok(input_str) = str::from_utf8(&state.input[..state.len]) {
-            print_on(SHELL_SCREEN_INDEX, input_str);
+            print(input_str);
         }
 
         if old_rendered_len > new_rendered_len {
             for _ in 0..(old_rendered_len - new_rendered_len) {
-                print_char_on(SHELL_SCREEN_INDEX, ' ');
+                print_char(' ');
             }
         }
 
@@ -236,6 +252,7 @@ fn redraw_input_line() {
         out::set_cursor_position_on(SHELL_SCREEN_INDEX, new_cursor_x, new_cursor_y);
         state.rendered_len = new_rendered_len;
         let _ = cursor_x;
+        out::scroll_view_to_bottom();
     });
 }
 
@@ -252,7 +269,7 @@ fn run_command_line() {
     let line = line.trim();
 
     if line.is_empty() {
-        print_on(SHELL_SCREEN_INDEX, PROMPT);
+        print(PROMPT);
         with_shell_state_mut(|state| {
             state.idx = 0;
             state.rendered_len = PROMPT.len();
@@ -263,7 +280,7 @@ fn run_command_line() {
     run_command(line);
 
     if out::is_screen_active(SHELL_SCREEN_INDEX) {
-        print_on(SHELL_SCREEN_INDEX, PROMPT);
+        print(PROMPT);
         with_shell_state_mut(|state| {
             state.idx = 0;
             state.rendered_len = PROMPT.len();
@@ -279,16 +296,22 @@ fn run_command(line: &str) {
 
     match command {
         "help" => {
-            print("Commands: help clear echo shutdown screen loglevel color\n");
+            print("Commands: help clear echo shutdown reboot screen loglevel color stack\n");
             print("screen <1-6>\n");
             print("loglevel <emerg|alert|crit|err|warn|notice|info|debug>\n");
             print("color <white|gray|red|green|blue|yellow|cyan|magenta>\n");
+            print("memstat\n");
+            print("memdebug\n");
+            print("memdump <addr> [len<=512]\n");
+            print("pte <addr>\n");
+            print("memtest [physical,vmem,heap,page,all]\n");
+            print("stack [words<=64]\n");
         }
         "clear" => clear(),
         "echo" => {
             let rest = line[command.len()..].trim_start();
             print(rest);
-            print("\n");
+            print_char('\n');
         }
         "reboot" => unsafe { request_reboot() },
         "shutdown" => unsafe { request_shutdown() },
@@ -338,6 +361,24 @@ fn run_command(line: &str) {
             change_color(ColorCode::new(color, Color::Black));
             print("shell color updated\n");
         }
+        "stack" => {
+            let words = if let Some(words_str) = parts.next() {
+                let Some(parsed) = parse_usize(words_str) else {
+                    print("invalid word count\n");
+                    return;
+                };
+                parsed
+            } else {
+                stack::DEFAULT_DUMP_WORDS
+            };
+
+            if words == 0 || words > stack::MAX_DUMP_WORDS {
+                print("word count must be in range 1..=64\n");
+                return;
+            }
+
+            command_stack(words);
+        }
         _ => {
             print("unknown command: ");
             print(command);
@@ -376,12 +417,37 @@ fn parse_color(name: &str) -> Option<Color> {
 
 fn complete(_partial: &str) -> Option<&'static str> {
     let commands = [
-        "help", "clear", "echo", "reboot", "shutdown", "screen", "loglevel", "color",
+        "help", "clear", "echo", "reboot", "shutdown", "screen", "loglevel", "color", "stack",
     ];
-    for &cmd in &commands {
-        if cmd.starts_with(_partial) {
-            return Some(cmd);
-        }
+    let mut matches = commands.iter().filter(|&cmd| cmd.starts_with(_partial));
+    let first_match = matches.next()?;
+    if matches.next().is_some() {
+        print_char('\n');
+        print(*first_match);
+        matches.for_each(|&cmd| print_fmt(format_args!(" {}", cmd)));
+        print_char('\n');
+        redraw_input_line();
+        None
+    } else {
+        Some(first_match)
     }
-    None
+}
+
+fn parse_usize(input: &str) -> Option<usize> {
+    if let Some(hex) = input
+        .strip_prefix("0x")
+        .or_else(|| input.strip_prefix("0X"))
+    {
+        usize::from_str_radix(hex, 16).ok()
+    } else {
+        input.parse::<usize>().ok()
+    }
+}
+
+fn command_stack(words: usize) {
+    let options = DumpStackOptions { words, trace_frames: stack::DEFAULT_TRACE_FRAMES };
+
+    stack::dump_stack_with_options(options, |args| {
+        print_fmt(args);
+    });
 }
