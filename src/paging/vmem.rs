@@ -208,6 +208,7 @@ fn insert_free_range(mut base: u32, mut size: u32) -> bool {
     true
 }
 
+#[inline(never)]
 pub fn vmalloc(size: usize) -> Option<*mut u8> {
     if size == 0 {
         pr_warn!("vmalloc rejected zero-sized request\n");
@@ -314,6 +315,7 @@ pub fn vmalloc(size: usize) -> Option<*mut u8> {
     }
 }
 
+#[inline(never)]
 pub fn vfree(ptr: *mut u8) -> bool {
     let base = ptr as u32;
     if base == 0 {
@@ -355,6 +357,7 @@ pub fn vfree(ptr: *mut u8) -> bool {
     }
 }
 
+#[inline(never)]
 pub fn vsize(ptr: *const u8) -> Option<usize> {
     let base = ptr as u32;
     if base == 0 {

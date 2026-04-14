@@ -21,6 +21,7 @@ struct PageTable([u32; ENTRIES_PER_TABLE]);
 
 static mut BOOT_PAGE_DIRECTORY: PageDirectory = PageDirectory([0; ENTRIES_PER_TABLE]);
 static mut BOOT_LOW_TABLE: PageTable = PageTable([0; ENTRIES_PER_TABLE]);
+static mut BOOT_KERNEL_TABLE: PageTable = PageTable([0; ENTRIES_PER_TABLE]);
 
 fn kernel_pd_index() -> usize {
     (KERNEL_SPACE_START >> 22) as usize
@@ -45,6 +46,14 @@ fn clear_page_directory() {
 
 fn fill_identity_low_table() {
     let pt_ptr = (unsafe { &raw mut BOOT_LOW_TABLE.0 }) as *mut u32;
+    for i in 0usize..ENTRIES_PER_TABLE {
+        let phys = (i as u32) * PAGE_SIZE_4K;
+        unsafe { pt_ptr.add(i).write(phys | TABLE_FLAGS) };
+    }
+}
+
+fn fill_kernel_low_alias_table() {
+    let pt_ptr = (unsafe { &raw mut BOOT_KERNEL_TABLE.0 }) as *mut u32;
     for i in 0usize..ENTRIES_PER_TABLE {
         let phys = (i as u32) * PAGE_SIZE_4K;
         unsafe { pt_ptr.add(i).write(phys | TABLE_FLAGS) };
@@ -124,6 +133,7 @@ fn lookup_page_entry_ptr(virt_addr: u32) -> Option<*mut u32> {
 fn install_boot_mappings() {
     let pd_ptr = (unsafe { &raw mut BOOT_PAGE_DIRECTORY.0 }) as *mut u32;
     let low_table_phys = (unsafe { &raw const BOOT_LOW_TABLE.0 }) as *const u32 as u32;
+    let kernel_table_phys = (unsafe { &raw const BOOT_KERNEL_TABLE.0 }) as *const u32 as u32;
 
     // Identity map first 4 MiB so current execution continues after PG=1.
     unsafe { pd_ptr.add(0).write(low_table_phys | TABLE_FLAGS) };
@@ -132,7 +142,7 @@ fn install_boot_mappings() {
     unsafe {
         pd_ptr
             .add(kernel_pd_index())
-            .write(low_table_phys | TABLE_FLAGS)
+            .write(kernel_table_phys | TABLE_FLAGS)
     };
 }
 
@@ -140,6 +150,7 @@ pub fn enable_bootstrap_paging() {
     unsafe {
         clear_page_directory();
         fill_identity_low_table();
+        fill_kernel_low_alias_table();
         install_boot_mappings();
 
         let pd_phys = (&raw const BOOT_PAGE_DIRECTORY.0) as *const u32 as u32;
