@@ -176,6 +176,7 @@ pub fn init_from_multiboot(info: &MultibootInfo) {
     }
 }
 
+#[inline(never)]
 pub fn alloc_frame() -> Option<u32> {
     unsafe {
         for word_idx in 0..BITMAP_WORDS {
@@ -198,6 +199,7 @@ pub fn alloc_frame() -> Option<u32> {
     None
 }
 
+#[inline(never)]
 pub fn alloc_frame_below(limit_addr: u64) -> Option<u32> {
     unsafe {
         let frame_idx = find_free_frame_below(limit_addr)?;
@@ -214,6 +216,7 @@ pub fn alloc_frame_below(limit_addr: u64) -> Option<u32> {
     }
 }
 
+#[inline(never)]
 pub fn free_frame(phys_addr: u32) -> bool {
     let frame_idx = frame_index(phys_addr);
     if frame_idx >= MAX_FRAMES || (phys_addr as usize % PAGE_SIZE) != 0 {

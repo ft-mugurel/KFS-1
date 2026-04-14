@@ -1,4 +1,6 @@
 use crate::interrupts::idt::register_interrupt_handler;
+use crate::startup_config::logging::DEFAULT_LOG_SCREEN;
+use crate::vga::text_mod;
 use crate::{pr_emerg, pr_err, pr_warn, x86};
 
 const EXCEPTION_NAMES: [&str; 32] = [
@@ -79,16 +81,14 @@ fn is_non_fatal_exception(vector: usize) -> bool {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn exception_common_handler(vector: u32) {
     let idx = vector as usize;
-    let name = EXCEPTION_NAMES.get(idx).copied().unwrap_or("Unknown Exception");
+    let name = EXCEPTION_NAMES
+        .get(idx)
+        .copied()
+        .unwrap_or("Unknown Exception");
 
     if idx == 14 {
         let fault_addr = x86::read_cr2();
-        pr_err!(
-            "EXCEPTION #{}: {} (cr2={:#x})\n",
-            idx,
-            name,
-            fault_addr
-        );
+        pr_err!("EXCEPTION #{}: {} (cr2={:#x})\n", idx, name, fault_addr);
     } else if is_non_fatal_exception(idx) {
         pr_warn!("EXCEPTION #{}: {} (continuing)\n", idx, name);
         return;
@@ -98,6 +98,7 @@ pub unsafe extern "C" fn exception_common_handler(vector: u32) {
 
     pr_emerg!("fatal CPU exception, halting kernel\n");
     x86::disable_interrupts();
+    text_mod::out::switch_screen(DEFAULT_LOG_SCREEN);
     x86::hlt_loop();
 }
 

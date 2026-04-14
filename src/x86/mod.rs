@@ -64,6 +64,24 @@ pub fn write_cr3(value: u32) {
 }
 
 #[inline]
+pub fn read_esp() -> u32 {
+    let value: u32;
+    unsafe {
+        asm!("mov {0:e}, esp", out(reg) value, options(nomem, nostack, preserves_flags));
+    }
+    value
+}
+
+#[inline]
+pub fn read_ebp() -> u32 {
+    let value: u32;
+    unsafe {
+        asm!("mov {0:e}, ebp", out(reg) value, options(nomem, nostack, preserves_flags));
+    }
+    value
+}
+
+#[inline]
 pub fn enable_paging() {
     const CR0_PG: u32 = 1 << 31;
     let cr0 = read_cr0();
