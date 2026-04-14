@@ -8,6 +8,7 @@
 		global _start
 
 _start:
+		cli				; Disable interrupts immediately to avoid pre-kmain IRQs
 		; Kernel entry point
 		extern kmain	; Rust'taki ana fonksiyon
 		push ebx		; multiboot info pointer

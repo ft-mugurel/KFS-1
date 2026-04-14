@@ -36,6 +36,7 @@ fn panic(info: &PanicInfo) -> ! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain(multiboot_magic: u32, multiboot_info_addr: u32) -> ! {
+    disable_interrupts();
     init_virtual_screens();
     pr_info!(
         "startup config: vga={}x{}, virtual_screens={}, scrollback={}\n",
