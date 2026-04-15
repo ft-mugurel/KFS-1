@@ -20,3 +20,6 @@ bench = false
 
 [dependencies]
 x86 = "0.52"  # Check for latest version
+
+[build-dependencies]
+rustc-demangle = "0.1"

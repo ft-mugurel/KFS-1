@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+pub mod debug;
 pub mod gdt;
 pub mod interrupts;
 pub mod printk;
@@ -42,8 +43,6 @@ pub extern "C" fn kmain() -> ! {
     enable_interrupts();
     pr_info!("Kernel initialized!\n",);
     pr_alert!("This should be an alert\n");
-    printk_on!(0, "This is the default screen for the shell\n");
-    printk_on!(0, "Use F1-F6 to switch screens.\n");
     printk_on!(1, "Default screen for kernel logs\n");
     printk_on!(2, "This is another virtual screen\n");
     printk_on!(3, "This is F4, in case you were wondering\n");
