@@ -301,7 +301,7 @@ fn render_screen_buffer(screen: &VirtualScreen) {
     }
 }
 
-pub(super) fn render_screen(screen: &mut VirtualScreen) {
+pub(crate) fn render_screen(screen: &mut VirtualScreen) {
     render_screen_buffer(screen);
     sync_cursor_of(screen);
 }

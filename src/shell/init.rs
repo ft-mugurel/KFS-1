@@ -11,6 +11,7 @@ use crate::interrupts::keyboard::keycode::{KeyCode, KeyEvent, Modifiers};
 use crate::interrupts::utils::{request_reboot, request_shutdown};
 use crate::printk::{set_log_level, KernelLogLevel};
 use crate::startup_config;
+use crate::vga::graphics;
 use crate::vga::text_mod::out::{
     self, active_screen_accepts_input, change_color, clear, print_char_on, print_on,
     set_cursor_movement_on, switch_screen, Color, ColorCode,
@@ -198,7 +199,7 @@ pub fn handle_shell_key_event(event: KeyEvent, modifiers: Modifiers) -> bool {
             with_shell_state_mut(|state| {
                 if state.idx == 0 || state.input[state.idx - 1] == b' ' {
                     print(
-                        "\nhelp clear echo shutdown reboot screen loglevel color memstat memdebug memdump pte memtest stack\n",
+                        "\nhelp clear echo shutdown reboot screen loglevel color memstat memdebug memdump pte memtest stack fractol\n",
                     );
                     state.clear_input();
                     redraw_input_line();
@@ -318,7 +319,7 @@ fn run_command(line: &str) {
     match command {
         "help" => {
             print(
-                "Commands: help clear echo shutdown reboot screen loglevel color memstat memdebug memdump pte memtest stack\n",
+                "Commands: help clear echo shutdown reboot screen loglevel color memstat memdebug memdump pte memtest stack fractol\n",
             );
             print("screen <1-6>\n");
             print("loglevel <emerg|alert|crit|err|warn|notice|info|debug>\n");
@@ -449,6 +450,9 @@ fn run_command(line: &str) {
 
             command_stack(words);
         }
+        "fractol" => {
+            graphics::draw_fractol();
+        }
         _ => {
             print("unknown command: ");
             print(command);
@@ -488,7 +492,7 @@ fn parse_color(name: &str) -> Option<Color> {
 fn complete(_partial: &str) -> Option<&'static str> {
     let commands = [
         "help", "clear", "echo", "reboot", "shutdown", "screen", "loglevel", "color", "memstat",
-        "memdebug", "memdump", "pte", "memtest", "stack",
+        "memdebug", "memdump", "pte", "memtest", "stack", "fractol",
     ];
     let mut matches = commands.iter().filter(|&cmd| cmd.starts_with(_partial));
     let first_match = matches.next()?;

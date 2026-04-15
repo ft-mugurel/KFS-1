@@ -3,6 +3,7 @@ use crate::interrupts::keyboard::keycode::{decode_set1_scancode, KeyCode, KeyEve
 use crate::interrupts::utils::request_shutdown;
 use crate::shell::handle_shell_key_event;
 use crate::startup_config::pic;
+use crate::vga::graphics;
 use crate::vga::text_mod::cursor::{
     disable_cursor, enable_cursor, set_big_cursor, set_cursor_shape, set_small_cursor,
 };
@@ -26,6 +27,15 @@ const KEYBOARD_IRQ_VECTOR: u8 = pic::KEYBOARD_IRQ_VECTOR;
 fn handle_key_press(event: KeyEvent, modifiers: Modifiers) -> bool {
     if event.key == KeyCode::Delete && modifiers.ctrl() && modifiers.alt() {
         return true;
+    }
+
+    if graphics::is_in_graphics_mode() {
+        if event.pressed {
+            unsafe {
+                graphics::exit_graphics_mode();
+            }
+        }
+        return false;
     }
 
     if active_screen_accepts_input() {

@@ -285,3 +285,9 @@ pub fn switch_to_next_screen() {
     let next_index = (current_index + 1) % screen::VIRTUAL_SCREENS_COUNT;
     switch_screen(next_index);
 }
+
+pub fn render_active_screen() {
+    screen::with_active_screen_mut(|screen| {
+        screen::render_screen(screen);
+    });
+}
