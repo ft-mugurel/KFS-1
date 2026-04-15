@@ -129,10 +129,8 @@ fn allocate_heap_virtual_span(span: u32) -> Option<u32> {
                     }
                     HEAP_FREE_RANGE_COUNT -= 1;
                 } else {
-                    HEAP_FREE_RANGES[i] = HeapFreeRange {
-                        base: range.base + span,
-                        size: remaining,
-                    };
+                    HEAP_FREE_RANGES[i] =
+                        HeapFreeRange { base: range.base + span, size: remaining };
                 }
                 return Some(base);
             }
@@ -212,7 +210,7 @@ fn insert_heap_virtual_span(mut base: u32, mut size: u32) -> bool {
     true
 }
 
-unsafe fn rollback_heap_mapping(base: u32, mapped_pages: usize) {
+fn rollback_heap_mapping(base: u32, mapped_pages: usize) {
     for i in 0usize..mapped_pages {
         let va = base + (i * PAGE_SIZE) as u32;
         if let Some(entry) = page_table::get_page(va) {
@@ -223,7 +221,7 @@ unsafe fn rollback_heap_mapping(base: u32, mapped_pages: usize) {
     }
 }
 
-unsafe fn map_heap_pages(size: usize) -> Option<*mut u8> {
+fn map_heap_pages(size: usize) -> Option<*mut u8> {
     let page_count = pages_for(size)?;
     let span = pages_to_bytes(page_count)?;
     let base = allocate_heap_virtual_span(span)?;
@@ -253,7 +251,7 @@ unsafe fn map_heap_pages(size: usize) -> Option<*mut u8> {
     Some(base as *mut u8)
 }
 
-unsafe fn unmap_heap_pages(base: *mut u8, size: usize) -> bool {
+fn unmap_heap_pages(base: *mut u8, size: usize) -> bool {
     let page_count = match pages_for(size) {
         Some(v) => v,
         None => return false,
@@ -283,7 +281,7 @@ unsafe fn unmap_heap_pages(base: *mut u8, size: usize) -> bool {
     insert_heap_virtual_span(base_u32, span)
 }
 
-unsafe fn provision_heap_chunk(min_block_total_size: usize) -> bool {
+fn provision_heap_chunk(min_block_total_size: usize) -> bool {
     let chunk_total_size = match chunk_alloc_size(min_block_total_size) {
         Some(size) => size,
         None => {
@@ -306,233 +304,247 @@ unsafe fn provision_heap_chunk(min_block_total_size: usize) -> bool {
         }
     };
 
-    (*chunk).magic = HEAP_MAGIC;
-    (*chunk).total_size = chunk_total_size;
-    (*chunk).prev = ptr::null_mut();
-    (*chunk).next = HEAP_CHUNKS;
+    unsafe {
+        (*chunk).magic = HEAP_MAGIC;
+        (*chunk).total_size = chunk_total_size;
+        (*chunk).prev = ptr::null_mut();
+        (*chunk).next = HEAP_CHUNKS;
 
-    if !HEAP_CHUNKS.is_null() {
-        (*HEAP_CHUNKS).prev = chunk;
-    }
-    HEAP_CHUNKS = chunk;
+        if !HEAP_CHUNKS.is_null() {
+            (*HEAP_CHUNKS).prev = chunk;
+        }
+        HEAP_CHUNKS = chunk;
 
-    let first_block = (chunk as *mut u8).add(chunk_header_size()) as *mut BlockHeader;
-    let first_block_total_size = chunk_total_size - chunk_header_size();
+        let first_block = (chunk as *mut u8).add(chunk_header_size()) as *mut BlockHeader;
+        let first_block_total_size = chunk_total_size - chunk_header_size();
 
-    if first_block_total_size < minimum_free_block_size() {
-        pr_warn!(
-            "kernel heap chunk too small chunk_size={} first_block_total={}\n",
+        if first_block_total_size < minimum_free_block_size() {
+            pr_warn!(
+                "kernel heap chunk too small chunk_size={} first_block_total={}\n",
+                chunk_total_size,
+                first_block_total_size
+            );
+            chunk_list_remove(chunk);
+            let _ = unmap_heap_pages(chunk as *mut u8, chunk_total_size);
+            return false;
+        }
+
+        (*first_block).magic = BLOCK_MAGIC;
+        (*first_block).total_size = first_block_total_size;
+        (*first_block).usable_size = first_block_total_size - block_alignment_overhead();
+        (*first_block).requested_size = 0;
+        (*first_block).chunk = chunk;
+        (*first_block).prev_free = ptr::null_mut();
+        (*first_block).next_free = ptr::null_mut();
+        (*first_block).free = 1;
+        write_footer(first_block);
+        free_list_push(first_block);
+
+        pr_debug!(
+            "kernel heap provisioned chunk base={:#x} size={} free_block_total={}\n",
+            chunk as usize,
             chunk_total_size,
             first_block_total_size
         );
-        chunk_list_remove(chunk);
-        let _ = unmap_heap_pages(chunk as *mut u8, chunk_total_size);
-        return false;
     }
-
-    (*first_block).magic = BLOCK_MAGIC;
-    (*first_block).total_size = first_block_total_size;
-    (*first_block).usable_size = first_block_total_size - block_alignment_overhead();
-    (*first_block).requested_size = 0;
-    (*first_block).chunk = chunk;
-    (*first_block).prev_free = ptr::null_mut();
-    (*first_block).next_free = ptr::null_mut();
-    (*first_block).free = 1;
-    write_footer(first_block);
-    free_list_push(first_block);
-
-    pr_debug!(
-        "kernel heap provisioned chunk base={:#x} size={} free_block_total={}\n",
-        chunk as usize,
-        chunk_total_size,
-        first_block_total_size
-    );
 
     true
 }
 
-unsafe fn block_footer_ptr(block: *mut BlockHeader) -> *mut BlockFooter {
-    (block as *mut u8).add((*block).total_size - block_footer_size()) as *mut BlockFooter
+fn block_footer_ptr(block: *mut BlockHeader) -> *mut BlockFooter {
+    unsafe { (block as *mut u8).add((*block).total_size - block_footer_size()) as *mut BlockFooter }
 }
 
-unsafe fn next_block_ptr(block: *mut BlockHeader) -> Option<*mut BlockHeader> {
-    let next_addr = (block as usize).checked_add((*block).total_size)?;
-    let chunk = (*block).chunk;
-    let chunk_start = chunk as usize;
-    let chunk_end = chunk_start.checked_add((*chunk).total_size)?;
+fn next_block_ptr(block: *mut BlockHeader) -> Option<*mut BlockHeader> {
+    unsafe {
+        let next_addr = (block as usize).checked_add((*block).total_size)?;
+        let chunk = (*block).chunk;
+        let chunk_start = chunk as usize;
+        let chunk_end = chunk_start.checked_add((*chunk).total_size)?;
 
-    if next_addr >= chunk_end {
-        None
-    } else {
-        Some(next_addr as *mut BlockHeader)
+        if next_addr >= chunk_end {
+            None
+        } else {
+            Some(next_addr as *mut BlockHeader)
+        }
     }
 }
 
-unsafe fn prev_block_ptr(block: *mut BlockHeader) -> Option<*mut BlockHeader> {
-    let chunk = (*block).chunk;
-    let chunk_start = chunk as usize;
-    let block_start = block as usize;
-    let first_block_start = chunk_start.checked_add(chunk_header_size())?;
+fn prev_block_ptr(block: *mut BlockHeader) -> Option<*mut BlockHeader> {
+    unsafe {
+        let chunk = (*block).chunk;
+        let chunk_start = chunk as usize;
+        let block_start = block as usize;
+        let first_block_start = chunk_start.checked_add(chunk_header_size())?;
 
-    if block_start <= first_block_start {
-        return None;
-    }
-
-    let footer_addr = block_start.checked_sub(block_footer_size())?;
-    if footer_addr < first_block_start {
-        return None;
-    }
-
-    let footer = footer_addr as *const BlockFooter;
-    if (*footer).magic != BLOCK_MAGIC {
-        return None;
-    }
-
-    let prev_total = (*footer).total_size;
-    if prev_total < minimum_free_block_size() {
-        return None;
-    }
-
-    let prev_start = block_start.checked_sub(prev_total)?;
-    if prev_start < first_block_start {
-        return None;
-    }
-
-    let prev = prev_start as *mut BlockHeader;
-    if (*prev).magic != BLOCK_MAGIC || (*prev).total_size != prev_total {
-        return None;
-    }
-
-    Some(prev)
-}
-
-unsafe fn write_footer(block: *mut BlockHeader) {
-    let footer = block_footer_ptr(block);
-    (*footer).magic = BLOCK_MAGIC;
-    (*footer).total_size = (*block).total_size;
-}
-
-unsafe fn free_list_remove(block: *mut BlockHeader) {
-    let prev = (*block).prev_free;
-    let next = (*block).next_free;
-
-    if !prev.is_null() {
-        (*prev).next_free = next;
-    } else {
-        HEAP_FREE_LIST = next;
-    }
-
-    if !next.is_null() {
-        (*next).prev_free = prev;
-    }
-
-    (*block).prev_free = ptr::null_mut();
-    (*block).next_free = ptr::null_mut();
-}
-
-unsafe fn free_list_push(block: *mut BlockHeader) {
-    (*block).prev_free = ptr::null_mut();
-    (*block).next_free = HEAP_FREE_LIST;
-
-    if !HEAP_FREE_LIST.is_null() {
-        (*HEAP_FREE_LIST).prev_free = block;
-    }
-
-    HEAP_FREE_LIST = block;
-}
-
-unsafe fn chunk_list_remove(chunk: *mut HeapChunk) {
-    let prev = (*chunk).prev;
-    let next = (*chunk).next;
-
-    if !prev.is_null() {
-        (*prev).next = next;
-    } else {
-        HEAP_CHUNKS = next;
-    }
-
-    if !next.is_null() {
-        (*next).prev = prev;
-    }
-
-    (*chunk).prev = ptr::null_mut();
-    (*chunk).next = ptr::null_mut();
-}
-
-unsafe fn heap_chunk_from_block(block: *mut BlockHeader) -> Option<*mut HeapChunk> {
-    let chunk = (*block).chunk;
-    if chunk.is_null() {
-        return None;
-    }
-
-    if (*chunk).magic != HEAP_MAGIC {
-        return None;
-    }
-
-    Some(chunk)
-}
-
-unsafe fn find_free_block(total_size: usize) -> Option<*mut BlockHeader> {
-    let mut current = HEAP_FREE_LIST;
-
-    while !current.is_null() {
-        pr_debug!(
-            "\x1b\x01mfind_free_block\x1bm: checking block={:#x} total={} free={}\n",
-            current as usize,
-            (*current).total_size,
-            (*current).free
-        );
-        if (*current).free != 0 && (*current).total_size >= total_size {
-            return Some(current);
+        if block_start <= first_block_start {
+            return None;
         }
 
-        current = (*current).next_free;
+        let footer_addr = block_start.checked_sub(block_footer_size())?;
+        if footer_addr < first_block_start {
+            return None;
+        }
+
+        let footer = footer_addr as *const BlockFooter;
+        if (*footer).magic != BLOCK_MAGIC {
+            return None;
+        }
+
+        let prev_total = (*footer).total_size;
+        if prev_total < minimum_free_block_size() {
+            return None;
+        }
+
+        let prev_start = block_start.checked_sub(prev_total)?;
+        if prev_start < first_block_start {
+            return None;
+        }
+
+        let prev = prev_start as *mut BlockHeader;
+        if (*prev).magic != BLOCK_MAGIC || (*prev).total_size != prev_total {
+            return None;
+        }
+        Some(prev)
+    }
+}
+
+fn write_footer(block: *mut BlockHeader) {
+    let footer = block_footer_ptr(block);
+    unsafe {
+        (*footer).magic = BLOCK_MAGIC;
+        (*footer).total_size = (*block).total_size;
+    }
+}
+
+fn free_list_remove(block: *mut BlockHeader) {
+    unsafe {
+        let prev = (*block).prev_free;
+        let next = (*block).next_free;
+
+        if !prev.is_null() {
+            (*prev).next_free = next;
+        } else {
+            HEAP_FREE_LIST = next;
+        }
+
+        if !next.is_null() {
+            (*next).prev_free = prev;
+        }
+
+        (*block).prev_free = ptr::null_mut();
+        (*block).next_free = ptr::null_mut();
+    }
+}
+
+fn free_list_push(block: *mut BlockHeader) {
+    unsafe {
+        (*block).prev_free = ptr::null_mut();
+        (*block).next_free = HEAP_FREE_LIST;
+
+        if !HEAP_FREE_LIST.is_null() {
+            (*HEAP_FREE_LIST).prev_free = block;
+        }
+
+        HEAP_FREE_LIST = block;
+    }
+}
+
+fn chunk_list_remove(chunk: *mut HeapChunk) {
+    unsafe {
+        let prev = (*chunk).prev;
+        let next = (*chunk).next;
+
+        if !prev.is_null() {
+            (*prev).next = next;
+        } else {
+            HEAP_CHUNKS = next;
+        }
+
+        if !next.is_null() {
+            (*next).prev = prev;
+        }
+
+        (*chunk).prev = ptr::null_mut();
+        (*chunk).next = ptr::null_mut();
+    }
+}
+
+fn heap_chunk_from_block(block: *mut BlockHeader) -> Option<*mut HeapChunk> {
+    unsafe {
+        let chunk = (*block).chunk;
+        if chunk.is_null() {
+            return None;
+        }
+
+        if (*chunk).magic != HEAP_MAGIC {
+            return None;
+        }
+
+        Some(chunk)
+    }
+}
+
+fn find_free_block(total_size: usize) -> Option<*mut BlockHeader> {
+    unsafe {
+        let mut current = HEAP_FREE_LIST;
+
+        while !current.is_null() {
+            if (*current).free != 0 && (*current).total_size >= total_size {
+                return Some(current);
+            }
+
+            current = (*current).next_free;
+        }
     }
 
     None
 }
 
-unsafe fn split_block(block: *mut BlockHeader, total_size: usize) {
-    let remaining = (*block).total_size - total_size;
-    if remaining < minimum_free_block_size() {
-        return;
+fn split_block(block: *mut BlockHeader, total_size: usize) {
+    unsafe {
+        let remaining = (*block).total_size - total_size;
+        if remaining < minimum_free_block_size() {
+            return;
+        }
+
+        let remainder = (block as *mut u8).add(total_size) as *mut BlockHeader;
+        (*remainder).magic = BLOCK_MAGIC;
+        (*remainder).total_size = remaining;
+        (*remainder).usable_size = remaining - block_alignment_overhead();
+        (*remainder).requested_size = 0;
+        (*remainder).chunk = (*block).chunk;
+        (*remainder).prev_free = ptr::null_mut();
+        (*remainder).next_free = ptr::null_mut();
+        (*remainder).free = 1;
+        write_footer(remainder);
+        free_list_push(remainder);
+
+        (*block).total_size = total_size;
+        (*block).usable_size = total_size - block_alignment_overhead();
     }
-
-    let remainder = (block as *mut u8).add(total_size) as *mut BlockHeader;
-    (*remainder).magic = BLOCK_MAGIC;
-    (*remainder).total_size = remaining;
-    (*remainder).usable_size = remaining - block_alignment_overhead();
-    (*remainder).requested_size = 0;
-    (*remainder).chunk = (*block).chunk;
-    (*remainder).prev_free = ptr::null_mut();
-    (*remainder).next_free = ptr::null_mut();
-    (*remainder).free = 1;
-    write_footer(remainder);
-    free_list_push(remainder);
-
-    (*block).total_size = total_size;
-    (*block).usable_size = total_size - block_alignment_overhead();
     write_footer(block);
 }
 
-unsafe fn release_chunk_if_empty(block: *mut BlockHeader) -> bool {
+fn release_chunk_if_empty(block: *mut BlockHeader) -> bool {
     let chunk = match heap_chunk_from_block(block) {
         Some(chunk) => chunk,
         None => return false,
     };
+    unsafe {
+        let first_block = (chunk as *mut u8).add(chunk_header_size()) as *mut BlockHeader;
+        let full_free_span = (*chunk).total_size - chunk_header_size();
 
-    let first_block = (chunk as *mut u8).add(chunk_header_size()) as *mut BlockHeader;
-    let full_free_span = (*chunk).total_size - chunk_header_size();
-
-    if block as usize == first_block as usize && (*block).total_size == full_free_span {
-        chunk_list_remove(chunk);
-        if !unmap_heap_pages(chunk as *mut u8, (*chunk).total_size) {
-            pr_warn!(
-                "kernel heap failed to return chunk pages base={:#x}\n",
-                chunk as usize
-            );
+        if block as usize == first_block as usize && (*block).total_size == full_free_span {
+            chunk_list_remove(chunk);
+            if !unmap_heap_pages(chunk as *mut u8, (*chunk).total_size) {
+                pr_warn!(
+                    "kernel heap failed to return chunk pages base={:#x}\n",
+                    chunk as usize
+                );
+            }
+            return true;
         }
-        return true;
     }
 
     false
@@ -546,10 +558,8 @@ pub fn init_kernel_heap() {
         for i in 0usize..HEAP_MAX_FREE_RANGES {
             HEAP_FREE_RANGES[i] = HeapFreeRange { base: 0, size: 0 };
         }
-        HEAP_FREE_RANGES[0] = HeapFreeRange {
-            base: HEAP_VM_START,
-            size: HEAP_VM_END - HEAP_VM_START,
-        };
+        HEAP_FREE_RANGES[0] =
+            HeapFreeRange { base: HEAP_VM_START, size: HEAP_VM_END - HEAP_VM_START };
         HEAP_FREE_RANGE_COUNT = 1;
     }
 
@@ -564,6 +574,7 @@ fn ensure_heap_ready() {
     }
 }
 
+#[inline(never)]
 pub fn kmalloc(size: usize) -> Option<*mut u8> {
     if size == 0 {
         pr_warn!("kmalloc rejected zero-sized request\n");
@@ -623,6 +634,7 @@ pub fn kmalloc(size: usize) -> Option<*mut u8> {
     }
 }
 
+#[inline(never)]
 pub fn kfree(ptr: *mut u8) -> bool {
     if ptr.is_null() {
         pr_warn!("kfree rejected null pointer\n");
@@ -695,6 +707,7 @@ pub fn kfree(ptr: *mut u8) -> bool {
     }
 }
 
+#[inline(never)]
 pub fn ksize(ptr: *const u8) -> Option<usize> {
     if ptr.is_null() {
         return None;
