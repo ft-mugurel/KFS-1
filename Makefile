@@ -113,15 +113,21 @@ iso-full: build
 	@echo -e "$(BOLD)$(GREEN)[✓] KERNEL FULL ISO BUILD$(RESET)"
 
 run-iso: iso
-	@${QEMU_SYSTEM} -cdrom ${ISO_OUT}
+	@${QEMU_SYSTEM} -m 4G \
+		-drive format=raw,file=${ISO_OUT},media=cdrom \
+		-boot order=d
 	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE$(RESET)"
 
 run-iso-full: iso-full
-	@${QEMU_SYSTEM} -cdrom ${ISO_FULL_OUT}
+	@${QEMU_SYSTEM} -m 4G \
+		-drive format=raw,file=${ISO_FULL_OUT},media=cdrom \
+		-boot order=d
 	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE$(RESET)"
 
 run-iso-term: iso
-	@${QEMU_SYSTEM} -cdrom ${ISO_OUT} -boot d -nographic
+	@${QEMU_SYSTEM} -m 4G \
+		-drive format=raw,file=${ISO_OUT},media=cdrom \
+		-boot order=d -nographic
 	@echo -e "\n$(BOLD)$(CYAN)[✓] KERNEL EXIT DONE$(RESET)"
 
 clean:
