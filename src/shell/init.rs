@@ -177,7 +177,7 @@ pub fn handle_shell_key_event(event: KeyEvent, modifiers: Modifiers) -> bool {
             with_shell_state_mut(|state| {
                 if state.idx == 0 || state.input[state.idx - 1] == b' ' {
                     print(
-                        "\nhelp clear echo shutdown reboot screen loglevel color memstat memdebug memdump pte memtest stack\n",
+                        "\nhelp clear echo shutdown reboot screen loglevel color stack\n",
                     );
                     state.clear_input();
                     redraw_input_line();
