@@ -2,6 +2,7 @@
 #![no_main]
 
 pub mod gdt;
+pub mod debug;
 pub mod interrupts;
 pub mod paging;
 pub mod printk;
@@ -24,13 +25,17 @@ use shell::init::init_shell;
 use vga::text_mod::out::init_virtual_screens;
 use x86::{disable_interrupts, hlt_loop};
 
-use crate::vga::text_mod::out::set_screen_accepts_input;
+use crate::{
+    startup_config::logging::DEFAULT_LOG_SCREEN,
+    vga::text_mod::out::{set_screen_accepts_input, switch_screen},
+};
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     pr_emerg!("KERNEL PANIC\n");
     pr_emerg!("{}\n", info);
     disable_interrupts();
+    switch_screen(DEFAULT_LOG_SCREEN);
     hlt_loop();
 }
 

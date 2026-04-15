@@ -8,8 +8,8 @@ use crate::vga::text_mod::cursor::{
 };
 use crate::vga::text_mod::out::{
     active_screen_accepts_input, move_cursor_down, move_cursor_left, move_cursor_right,
-    move_cursor_up, scroll_view_down, scroll_view_up, switch_screen, switch_to_next_screen,
-    switch_to_previous_screen,
+    move_cursor_up, scroll_view_down, scroll_view_to_bottom, scroll_view_to_top, scroll_view_up,
+    switch_screen, switch_to_next_screen, switch_to_previous_screen,
 };
 use crate::x86::io::outb;
 
@@ -63,6 +63,8 @@ fn handle_key_press(event: KeyEvent, modifiers: Modifiers) -> bool {
                 move_cursor_right();
             }
         }
+        KeyCode::PageUp => scroll_view_to_top(),
+        KeyCode::PageDown => scroll_view_to_bottom(),
         KeyCode::F1 => switch_screen(0),
         KeyCode::F2 => switch_screen(1),
         KeyCode::F3 => switch_screen(2),

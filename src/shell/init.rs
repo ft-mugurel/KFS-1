@@ -1,12 +1,14 @@
 use core::cell::UnsafeCell;
 use core::fmt;
-use core::ptr;
 use core::str;
 
+use crate::debug::{
+    memory,
+    stack::{self, DumpStackOptions},
+};
 use crate::interrupts::keyboard::character_map::keycode_to_char;
 use crate::interrupts::keyboard::keycode::{KeyCode, KeyEvent, Modifiers};
 use crate::interrupts::utils::{request_reboot, request_shutdown};
-use crate::paging::{kernel_heap, page_table, physical, vmem};
 use crate::printk::{set_log_level, KernelLogLevel};
 use crate::startup_config;
 use crate::vga::text_mod::out::{
@@ -18,8 +20,6 @@ use crate::vga::text_mod::screen;
 const PROMPT: &str = "mysh > ";
 const MAX_INPUT_LEN: usize = startup_config::shell::MAX_INPUT_LEN;
 const SCREEN_INDEX: usize = startup_config::shell::SCREEN_INDEX;
-const MEMDUMP_DEFAULT_LEN: usize = 128;
-const MEMDUMP_MAX_LEN: usize = 512;
 
 struct ShellState {
     input: [u8; MAX_INPUT_LEN],
@@ -198,7 +198,7 @@ pub fn handle_shell_key_event(event: KeyEvent, modifiers: Modifiers) -> bool {
             with_shell_state_mut(|state| {
                 if state.idx == 0 || state.input[state.idx - 1] == b' ' {
                     print(
-                        "\nhelp clear echo shutdown reboot screen loglevel color memstat memdebug memdump pte memtest\n",
+                        "\nhelp clear echo shutdown reboot screen loglevel color memstat memdebug memdump pte memtest stack\n",
                     );
                     state.clear_input();
                     redraw_input_line();
@@ -273,6 +273,7 @@ fn redraw_input_line() {
         out::set_cursor_position_on(SCREEN_INDEX, new_cursor_x, new_cursor_y);
         state.rendered_len = new_rendered_len;
         let _ = cursor_x;
+        out::scroll_view_to_bottom();
     });
 }
 
@@ -317,7 +318,7 @@ fn run_command(line: &str) {
     match command {
         "help" => {
             print(
-                "Commands: help clear echo shutdown reboot screen loglevel color memstat memdebug memdump pte memtest\n",
+                "Commands: help clear echo shutdown reboot screen loglevel color memstat memdebug memdump pte memtest stack\n",
             );
             print("screen <1-6>\n");
             print("loglevel <emerg|alert|crit|err|warn|notice|info|debug>\n");
@@ -327,6 +328,7 @@ fn run_command(line: &str) {
             print("memdump <addr> [len<=512]\n");
             print("pte <addr>\n");
             print("memtest [physical,vmem,heap,page,all]\n");
+            print("stack [words<=64]\n");
         }
         "clear" => clear(SCREEN_INDEX),
         "echo" => {
@@ -382,8 +384,8 @@ fn run_command(line: &str) {
             change_color(ColorCode::new(color, Color::Black));
             print("shell color updated\n");
         }
-        "memstat" => command_memstat(),
-        "memdebug" => command_memdebug(),
+        "memstat" => memory::print_memstat(|args| print_fmt(args)),
+        "memdebug" => memory::print_memdebug(|args| print_fmt(args)),
         "memdump" => {
             let Some(addr_str) = parts.next() else {
                 print("usage: memdump <addr> [len<=512]\n");
@@ -402,15 +404,15 @@ fn run_command(line: &str) {
                 };
                 parsed
             } else {
-                MEMDUMP_DEFAULT_LEN
+                memory::MEMDUMP_DEFAULT_LEN
             };
 
-            if len == 0 || len > MEMDUMP_MAX_LEN {
+            if len == 0 || len > memory::MEMDUMP_MAX_LEN {
                 print("length must be in range 1..=512\n");
                 return;
             }
 
-            dump_virtual_memory(addr, len);
+            memory::dump_virtual_memory(addr, len, |args| print_fmt(args));
         }
         "pte" => {
             let Some(addr_str) = parts.next() else {
@@ -423,11 +425,29 @@ fn run_command(line: &str) {
                 return;
             };
 
-            debug_page_entry(addr);
+            memory::debug_page_entry(addr, |args| print_fmt(args));
         }
         "memtest" => {
             let features = line[command.len()..].trim();
-            command_memtest(features);
+            memory::run_memtest(features, |args| print_fmt(args));
+        }
+        "stack" => {
+            let words = if let Some(words_str) = parts.next() {
+                let Some(parsed) = parse_usize(words_str) else {
+                    print("invalid word count\n");
+                    return;
+                };
+                parsed
+            } else {
+                stack::DEFAULT_DUMP_WORDS
+            };
+
+            if words == 0 || words > stack::MAX_DUMP_WORDS {
+                print("word count must be in range 1..=64\n");
+                return;
+            }
+
+            command_stack(words);
         }
         _ => {
             print("unknown command: ");
@@ -468,7 +488,7 @@ fn parse_color(name: &str) -> Option<Color> {
 fn complete(_partial: &str) -> Option<&'static str> {
     let commands = [
         "help", "clear", "echo", "reboot", "shutdown", "screen", "loglevel", "color", "memstat",
-        "memdebug", "memdump", "pte", "memtest",
+        "memdebug", "memdump", "pte", "memtest", "stack",
     ];
     let mut matches = commands.iter().filter(|&cmd| cmd.starts_with(_partial));
     let first_match = matches.next()?;
@@ -506,319 +526,10 @@ fn parse_usize(input: &str) -> Option<usize> {
     }
 }
 
-fn command_memstat() {
-    let total_pages = physical::total_physical_pages();
-    let free_pages = physical::free_physical_pages();
-    let used_pages = total_pages.saturating_sub(free_pages);
-    let page_size = physical::physical_page_size();
-    let total_phys_kib = total_pages.saturating_mul(page_size) / 1024;
-    let free_phys_kib = free_pages.saturating_mul(page_size) / 1024;
+fn command_stack(words: usize) {
+    let options = DumpStackOptions { words, trace_frames: stack::DEFAULT_TRACE_FRAMES };
 
-    let vstats = vmem::debug_stats();
-    let hstats = kernel_heap::debug_stats();
-
-    print_fmt(format_args!(
-        "physical: total_pages={} free_pages={} used_pages={} total_kib={} free_kib={}\n",
-        total_pages, free_pages, used_pages, total_phys_kib, free_phys_kib
-    ));
-    print_fmt(format_args!(
-        "vmem: range=[{:#010x}, {:#010x}) total_kib={} free_kib={} allocs={} alloc_bytes={} free_ranges={}\n",
-        vstats.range_start,
-        vstats.range_end,
-        (vstats.total_bytes as usize) / 1024,
-        (vstats.free_bytes as usize) / 1024,
-        vstats.alloc_count,
-        vstats.alloc_bytes,
-        vstats.free_ranges
-    ));
-    print_fmt(format_args!(
-        "kheap: ready={} chunks={} chunk_bytes={} free_blocks={} free_bytes={} used_blocks={} used_req_bytes={}\n",
-        hstats.ready,
-        hstats.chunk_count,
-        hstats.chunk_bytes,
-        hstats.free_block_count,
-        hstats.free_bytes,
-        hstats.used_block_count,
-        hstats.used_requested_bytes
-    ));
-}
-
-fn command_memdebug() {
-    command_memstat();
-
-    print("vmem active allocations:\n");
-    let mut alloc_count = 0usize;
-    vmem::debug_for_each_alloc(|base, size, pages| {
-        alloc_count += 1;
-        print_fmt(format_args!(
-            "  alloc#{:02} base={:#010x} size={} pages={}\n",
-            alloc_count, base, size, pages
-        ));
+    stack::dump_stack_with_options(options, |args| {
+        print_fmt(args);
     });
-    if alloc_count == 0 {
-        print("  (none)\n");
-    }
-
-    print("vmem free ranges:\n");
-    let mut free_count = 0usize;
-    vmem::debug_for_each_free_range(|base, size| {
-        free_count += 1;
-        let end = base.saturating_add(size);
-        print_fmt(format_args!(
-            "  range#{:02} [{:#010x}, {:#010x}) size={}\n",
-            free_count, base, end, size
-        ));
-    });
-    if free_count == 0 {
-        print("  (none)\n");
-    }
-}
-
-fn debug_page_entry(addr: u32) {
-    let page_base = addr & 0xFFFF_F000;
-    match page_table::get_page(page_base) {
-        Some(entry) => {
-            let phys = entry & 0xFFFF_F000;
-            let flags = entry & 0x0000_0FFF;
-            print_fmt(format_args!(
-                "pte: va={:#010x} page={:#010x} entry={:#010x} pa={:#010x} flags={:#05x}\n",
-                addr, page_base, entry, phys, flags
-            ));
-            print_fmt(format_args!(
-                "  present={} writable={} user={} huge={}\n",
-                (entry & page_table::PAGE_PRESENT) != 0,
-                (entry & page_table::PAGE_WRITABLE) != 0,
-                (entry & page_table::PAGE_USER) != 0,
-                (entry & page_table::PAGE_PAGE_SIZE_4MB) != 0
-            ));
-        }
-        None => {
-            print_fmt(format_args!(
-                "pte: va={:#010x} page={:#010x} not mapped\n",
-                addr, page_base
-            ));
-        }
-    }
-}
-
-fn dump_virtual_memory(start_addr: u32, len: usize) {
-    let end_addr = match (start_addr as usize).checked_add(len) {
-        Some(v) if v <= u32::MAX as usize => v as u32,
-        _ => {
-            print("address range overflow\n");
-            return;
-        }
-    };
-
-    print_fmt(format_args!(
-        "memdump: [{:#010x}, {:#010x}) len={}\n",
-        start_addr, end_addr, len
-    ));
-
-    let mut offset = 0usize;
-    while offset < len {
-        let line_addr = start_addr.wrapping_add(offset as u32);
-        print_fmt(format_args!("{:#010x}: ", line_addr));
-
-        let mut ascii = [b'.'; 16];
-        for i in 0usize..16 {
-            let pos = offset + i;
-            if pos >= len {
-                print("   ");
-                continue;
-            }
-
-            let byte_addr = start_addr.wrapping_add(pos as u32);
-            let page_base = byte_addr & 0xFFFF_F000;
-            if page_table::get_page(page_base).is_none() {
-                print("?? ");
-                ascii[i] = b'?';
-                continue;
-            }
-
-            let value = unsafe { ptr::read_volatile(byte_addr as *const u8) };
-            print_fmt(format_args!("{:02x} ", value));
-            ascii[i] = if value.is_ascii_graphic() || value == b' ' {
-                value
-            } else {
-                b'.'
-            };
-        }
-
-        print(" |");
-        for i in 0usize..16 {
-            let pos = offset + i;
-            if pos >= len {
-                break;
-            }
-            print_char(ascii[i] as char);
-        }
-        print("|\n");
-
-        offset = offset.saturating_add(16);
-    }
-}
-
-fn command_memtest(features: &str) {
-    let mut run_physical = false;
-    let mut run_vmem = false;
-    let mut run_heap = false;
-    let mut run_page = false;
-
-    if features.is_empty() || features == "all" {
-        run_physical = true;
-        run_vmem = true;
-        run_heap = true;
-        run_page = true;
-    } else {
-        for token in features.split(|c: char| c == ',' || c.is_ascii_whitespace()) {
-            if token.is_empty() {
-                continue;
-            }
-
-            match token {
-                "physical" => run_physical = true,
-                "vmem" => run_vmem = true,
-                "heap" => run_heap = true,
-                "page" => run_page = true,
-                "all" => {
-                    run_physical = true;
-                    run_vmem = true;
-                    run_heap = true;
-                    run_page = true;
-                }
-                _ => {
-                    print("usage: memtest [physical,vmem,heap,page,all]\n");
-                    print("unknown feature: ");
-                    print(token);
-                    print("\n");
-                    return;
-                }
-            }
-        }
-    }
-
-    print("memtest: running selected tests\n");
-
-    let mut total = 0usize;
-    let mut passed = 0usize;
-
-    if run_physical {
-        total += 1;
-        if memtest_physical_roundtrip() {
-            passed += 1;
-            print("  [PASS] physical\n");
-        } else {
-            print("  [FAIL] physical\n");
-        }
-    }
-
-    if run_vmem {
-        total += 1;
-        if memtest_vmem_roundtrip() {
-            passed += 1;
-            print("  [PASS] vmem\n");
-        } else {
-            print("  [FAIL] vmem\n");
-        }
-    }
-
-    if run_heap {
-        total += 1;
-        if memtest_heap_roundtrip() {
-            passed += 1;
-            print("  [PASS] heap\n");
-        } else {
-            print("  [FAIL] heap\n");
-        }
-    }
-
-    if run_page {
-        total += 1;
-        if memtest_page_roundtrip() {
-            passed += 1;
-            print("  [PASS] page\n");
-        } else {
-            print("  [FAIL] page\n");
-        }
-    }
-
-    print_fmt(format_args!(
-        "memtest summary: passed={}/{} failed={}\n",
-        passed,
-        total,
-        total.saturating_sub(passed)
-    ));
-}
-
-fn memtest_physical_roundtrip() -> bool {
-    let free_before = physical::free_physical_pages();
-    let Some(frame) = physical::alloc_physical_page() else {
-        return false;
-    };
-
-    let free_after_alloc = physical::free_physical_pages();
-    if free_after_alloc.saturating_add(1) != free_before {
-        let _ = physical::free_physical_page(frame);
-        return false;
-    }
-
-    if !physical::free_physical_page(frame) {
-        return false;
-    }
-
-    physical::free_physical_pages() == free_before
-}
-
-fn memtest_vmem_roundtrip() -> bool {
-    let Some(ptr) = vmem::vmalloc(4096) else {
-        return false;
-    };
-
-    if vmem::vsize(ptr as *const u8) != Some(4096) {
-        let _ = vmem::vfree(ptr);
-        return false;
-    }
-
-    vmem::vfree(ptr)
-}
-
-fn memtest_heap_roundtrip() -> bool {
-    let Some(ptr) = kernel_heap::kmalloc(128) else {
-        return false;
-    };
-
-    if kernel_heap::ksize(ptr as *const u8) != Some(128) {
-        let _ = kernel_heap::kfree(ptr);
-        return false;
-    }
-
-    kernel_heap::kfree(ptr)
-}
-
-fn memtest_page_roundtrip() -> bool {
-    const TEST_USER_VA: u32 = 0x0800_0000;
-
-    let Some(frame) = physical::alloc_physical_page() else {
-        return false;
-    };
-
-    let map_ok = page_table::map_page(
-        TEST_USER_VA,
-        frame,
-        page_table::PAGE_WRITABLE | page_table::PAGE_USER,
-    )
-    .is_ok();
-    if !map_ok {
-        let _ = physical::free_physical_page(frame);
-        return false;
-    }
-
-    let mapped =
-        matches!(page_table::get_page(TEST_USER_VA), Some(entry) if (entry & 0xFFFF_F000) == frame);
-
-    let _ = page_table::unmap_page(TEST_USER_VA);
-    let _ = physical::free_physical_page(frame);
-
-    mapped
 }

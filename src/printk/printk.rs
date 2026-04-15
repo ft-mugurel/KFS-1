@@ -36,30 +36,16 @@ fn level_from_u8(level: u8) -> KernelLogLevel {
     }
 }
 
-fn color_for_level(level: KernelLogLevel) -> out::ColorCode {
-    match level {
-        KernelLogLevel::Emerg => out::ColorCode::new(out::Color::White, out::Color::Red),
-        KernelLogLevel::Alert | KernelLogLevel::Crit => {
-            out::ColorCode::new(out::Color::LightRed, out::Color::Black)
-        }
-        KernelLogLevel::Err => out::ColorCode::new(out::Color::Red, out::Color::Black),
-        KernelLogLevel::Warning => out::ColorCode::new(out::Color::Yellow, out::Color::Black),
-        KernelLogLevel::Notice => out::ColorCode::new(out::Color::LightBlue, out::Color::Black),
-        KernelLogLevel::Info => out::ColorCode::new(out::Color::White, out::Color::Black),
-        KernelLogLevel::Debug => out::ColorCode::new(out::Color::DarkGray, out::Color::Black),
-    }
-}
-
 fn level_tag(level: KernelLogLevel) -> &'static str {
     match level {
-        KernelLogLevel::Emerg => "EMERG",
-        KernelLogLevel::Alert => "ALERT",
-        KernelLogLevel::Crit => "CRIT",
-        KernelLogLevel::Err => "ERR",
-        KernelLogLevel::Warning => "WARN",
-        KernelLogLevel::Notice => "NOTICE",
-        KernelLogLevel::Info => "INFO",
-        KernelLogLevel::Debug => "DEBUG",
+        KernelLogLevel::Emerg => "[\x1B\x0F;\x14mEMERG\x1Bm] ",
+        KernelLogLevel::Alert => "[\x1B\x0F;\x16mALERT\x1Bm] ",
+        KernelLogLevel::Crit => "[\x1B\x0F;\x1CmCRIT\x1Bm] ",
+        KernelLogLevel::Err => "[\x1B\x04mERR\x1Bm] ",
+        KernelLogLevel::Warning => "[\x1B\x0EmWARN\x1Bm] ",
+        KernelLogLevel::Notice => "[\x1B\x09mNOTICE\x1Bm] ",
+        KernelLogLevel::Info => "[\x1B\x07mINFO\x1Bm] ",
+        KernelLogLevel::Debug => "[\x1B\x08mDEBUG\x1Bm] ",
     }
 }
 
@@ -83,9 +69,7 @@ pub fn printk_level_to_screen(
     if !is_enabled(level) {
         return;
     }
-
-    out::change_color_on(screen_index, color_for_level(level));
-    out::write_fmt_on(screen_index, format_args!("[{}] ", level_tag(level)));
+    out::print_on(screen_index, level_tag(level));
     out::write_fmt_on(screen_index, args);
 }
 
@@ -94,13 +78,9 @@ pub fn printk_level_to_default(level: KernelLogLevel, args: fmt::Arguments<'_>) 
         return;
     }
 
-    out::change_color_on(
+    out::print_on(
         startup_config::logging::DEFAULT_LOG_SCREEN,
-        color_for_level(level),
-    );
-    out::write_fmt_on(
-        startup_config::logging::DEFAULT_LOG_SCREEN,
-        format_args!("[{}] ", level_tag(level)),
+        level_tag(level),
     );
     out::write_fmt_on(startup_config::logging::DEFAULT_LOG_SCREEN, args);
 }
@@ -119,10 +99,6 @@ pub fn printk_to_debug(args: fmt::Arguments<'_>) {
     } else {
         startup_config::logging::DEFAULT_DEBUG_LOG_SCREEN
     };
-    out::change_color_on(screen_index, color_for_level(KernelLogLevel::Debug));
-    out::write_fmt_on(
-        screen_index,
-        format_args!("[{}] ", level_tag(KernelLogLevel::Debug)),
-    );
+    out::print_on(screen_index, level_tag(KernelLogLevel::Debug));
     out::write_fmt_on(screen_index, args);
 }
