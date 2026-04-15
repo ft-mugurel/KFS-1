@@ -1,6 +1,6 @@
 use super::init::PAGE_SIZE;
 use super::multiboot::{
-    MULTIBOOT_INFO_HAS_BASIC_MEMORY, MULTIBOOT_MEMORY_AVAILABLE, MemoryMapIter, MultibootInfo,
+    MemoryMapIter, MultibootInfo, MULTIBOOT_INFO_HAS_BASIC_MEMORY, MULTIBOOT_MEMORY_AVAILABLE,
 };
 use crate::{pr_debug, pr_warn};
 
@@ -97,7 +97,7 @@ fn find_free_frame_below(limit_addr: u64) -> Option<usize> {
     None
 }
 
-pub fn init_from_multiboot(info: &MultibootInfo) {
+pub(super) fn init_from_multiboot(info: &MultibootInfo) {
     unsafe {
         // Start with every frame reserved, then free only bootloader-reported usable ranges.
         for i in 0usize..BITMAP_WORDS {
@@ -177,7 +177,7 @@ pub fn init_from_multiboot(info: &MultibootInfo) {
 }
 
 #[inline(never)]
-pub fn alloc_frame() -> Option<u32> {
+pub(super) fn alloc_frame() -> Option<u32> {
     unsafe {
         for word_idx in 0..BITMAP_WORDS {
             let word = FRAME_BITMAP[word_idx];
@@ -200,7 +200,7 @@ pub fn alloc_frame() -> Option<u32> {
 }
 
 #[inline(never)]
-pub fn alloc_frame_below(limit_addr: u64) -> Option<u32> {
+pub(super) fn alloc_frame_below(limit_addr: u64) -> Option<u32> {
     unsafe {
         let frame_idx = find_free_frame_below(limit_addr)?;
         mark_used(frame_idx);
@@ -217,7 +217,7 @@ pub fn alloc_frame_below(limit_addr: u64) -> Option<u32> {
 }
 
 #[inline(never)]
-pub fn free_frame(phys_addr: u32) -> bool {
+pub(super) fn free_frame(phys_addr: u32) -> bool {
     let frame_idx = frame_index(phys_addr);
     if frame_idx >= MAX_FRAMES || (phys_addr as usize % PAGE_SIZE) != 0 {
         pr_warn!("free_frame rejected invalid addr={:#x}\n", phys_addr);
@@ -236,10 +236,10 @@ pub fn free_frame(phys_addr: u32) -> bool {
     true
 }
 
-pub fn total_frame_count() -> usize {
+pub(super) fn total_frame_count() -> usize {
     unsafe { TOTAL_FRAMES }
 }
 
-pub fn free_frame_count() -> usize {
+pub(super) fn free_frame_count() -> usize {
     unsafe { FREE_FRAMES }
 }
